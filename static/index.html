@@ -78,12 +78,21 @@ svg { width: 100%; height: 100%; }
 .tab-btn.active { background: var(--surface); color: var(--text); }
 
 /* ── Mobile ── */
-#sidebar-toggle { display: none; background: transparent; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 0 4px; }
+#sidebar-toggle { display: none; background: transparent; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 0 8px; min-width: 44px; min-height: 44px; }
+.note-item { min-height: 44px; }
+svg { touch-action: none; }
 @media (max-width: 640px) {
-  #sidebar { position: absolute; left: -100%; z-index: 100; height: 100%; transition: left 0.2s; }
+  #sidebar { position: absolute; left: -100%; z-index: 100; height: 100%; transition: left 0.2s; width: 80vw; }
   #sidebar.open { left: 0; box-shadow: 4px 0 20px rgba(0,0,0,0.5); }
-  #sidebar-toggle { display: block; }
+  #sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+  #toolbar { flex-wrap: wrap; padding: 8px 10px; gap: 6px; }
+  #note-title-input { min-width: 0; font-size: 15px; }
+  #tags-input { width: auto; flex: 1; min-width: 0; font-size: 12px; }
+  #view-tabs { order: 3; width: 100%; display: flex; }
+  #view-tabs .tab-btn { flex: 1; text-align: center; padding: 8px 4px; min-height: 36px; }
   #editor, #preview { padding: 16px; }
+  .btn { padding: 8px 10px; min-height: 36px; }
+  #save-btn, #delete-btn { font-size: 13px; }
 }
 </style>
 </head>
@@ -176,6 +185,9 @@ function renderList() {
 
 async function openNote(id) {
   if (dirty && activeNote && !confirm('Unsaved changes. Discard?')) return;
+  // Close sidebar on mobile when opening a note
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar.classList.contains('open')) toggleSidebar();
   const res = await fetch(`/api/notes/${id}`);
   activeNote = await res.json();
   dirty = false;
@@ -371,7 +383,24 @@ function formatDate(ts) {
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   return d.toLocaleDateString();
 }
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.toggle('open');
+  // Backdrop
+  let bd = document.getElementById('sidebar-backdrop');
+  if (sidebar.classList.contains('open')) {
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.id = 'sidebar-backdrop';
+      bd.style.cssText = 'position:fixed;inset:0;z-index:99;background:rgba(0,0,0,0.4);display:none';
+      bd.onclick = toggleSidebar;
+      document.body.appendChild(bd);
+    }
+    bd.style.display = 'block';
+  } else if (bd) {
+    bd.style.display = 'none';
+  }
+}
 
 init();
 </script>
