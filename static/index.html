@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notes</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #1a1a1a; --surface: #242424; --border: #333;
+  --text: #e8e8e8; --muted: #888; --accent: #7c6af7;
+  --accent2: #4ecdc4; --danger: #e74c3c; --sidebar-w: 260px;
+}
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100dvh; display: flex; overflow: hidden; }
+
+/* ── Sidebar ── */
+#sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+#search-bar { padding: 12px; border-bottom: 1px solid var(--border); }
+#search-bar input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+#search-bar input:focus { border-color: var(--accent); }
+#note-list { flex: 1; overflow-y: auto; }
+.note-item { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+.note-item:hover, .note-item.active { background: #2e2e2e; }
+.note-item.active { border-left: 3px solid var(--accent); padding-left: 11px; }
+.note-item h4 { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-item .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.note-item .preview { font-size: 11px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag { display: inline-block; background: #333; color: var(--accent); font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-right: 3px; }
+#new-note-btn { margin: 12px; padding: 9px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+#new-note-btn:hover { opacity: 0.85; }
+
+/* ── Main ── */
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+#note-title-input { flex: 1; background: transparent; border: none; color: var(--text); font-size: 16px; font-weight: 600; outline: none; }
+.btn { padding: 6px 12px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-size: 12px; }
+.btn:hover { background: #333; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.btn.active { background: #333; }
+#tags-input { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 4px 8px; border-radius: 4px; outline: none; width: 120px; }
+
+#content-area { flex: 1; overflow: hidden; position: relative; }
+#editor { width: 100%; height: 100%; background: var(--bg); color: var(--text); border: none; outline: none; resize: none; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 14px; line-height: 1.7; padding: 24px 32px; display: none; }
+#preview { height: 100%; overflow-y: auto; padding: 24px 32px; display: none; }
+#preview h1, #preview h2, #preview h3 { margin: 1em 0 0.4em; }
+#preview p { margin: 0.6em 0; line-height: 1.7; }
+#preview code { background: #2d2d2d; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+#preview pre { background: #2d2d2d; padding: 16px; border-radius: 6px; overflow-x: auto; margin: 1em 0; }
+#preview a { color: var(--accent); }
+#preview a.wikilink { color: var(--accent2); text-decoration: none; border-bottom: 1px dashed var(--accent2); }
+#preview ul, #preview ol { margin: 0.6em 0 0.6em 1.5em; }
+#preview blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--muted); margin: 1em 0; }
+#preview table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+#preview th, #preview td { border: 1px solid var(--border); padding: 8px 12px; }
+#preview th { background: var(--surface); }
+#empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); gap: 12px; }
+#empty-state h2 { font-size: 18px; color: var(--text); }
+
+/* ── Graph ── */
+#graph-container { width: 100%; height: 100%; display: none; }
+svg { width: 100%; height: 100%; }
+.node circle { stroke-width: 1.5px; cursor: pointer; transition: r 0.2s; }
+.node circle:hover { r: 10; }
+.node text { font-size: 11px; fill: var(--text); pointer-events: none; }
+.link { stroke-opacity: 0.4; }
+.link.type-link { stroke: var(--accent); }
+.link.type-similar { stroke: var(--accent2); stroke-dasharray: 4 2; }
+#graph-legend { position: absolute; bottom: 16px; left: 16px; background: rgba(0,0,0,0.7); padding: 10px 14px; border-radius: 6px; font-size: 11px; display: none; }
+.legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.legend-line { width: 20px; height: 2px; }
+
+/* ── Nav tabs ── */
+#view-tabs { display: flex; gap: 4px; }
+.tab-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.tab-btn.active { background: var(--surface); color: var(--text); }
+
+/* ── Mobile ── */
+#sidebar-toggle { display: none; background: transparent; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 0 4px; }
+@media (max-width: 640px) {
+  #sidebar { position: absolute; left: -100%; z-index: 100; height: 100%; transition: left 0.2s; }
+  #sidebar.open { left: 0; box-shadow: 4px 0 20px rgba(0,0,0,0.5); }
+  #sidebar-toggle { display: block; }
+  #editor, #preview { padding: 16px; }
+}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div style="padding:10px 12px; border-bottom:1px solid var(--border);">
+    <button id="new-note-btn" onclick="newNote()">+ New Note</button>
+  </div>
+  <div id="search-bar">
+    <input type="text" placeholder="Search notes..." id="search-input" oninput="onSearch(this.value)">
+  </div>
+  <div id="note-list"></div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <button id="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+    <input id="note-title-input" placeholder="Note title..." oninput="markDirty()">
+    <input id="tags-input" placeholder="tags, comma separated" oninput="markDirty()">
+    <div id="view-tabs">
+      <button class="tab-btn active" onclick="setView('edit')" id="tab-edit">Edit</button>
+      <button class="tab-btn" onclick="setView('preview')" id="tab-preview">Preview</button>
+      <button class="tab-btn" onclick="setView('graph')" id="tab-graph">Graph</button>
+    </div>
+    <button class="btn primary" id="save-btn" onclick="saveNote()" style="display:none">Save</button>
+    <button class="btn danger" id="delete-btn" onclick="deleteNote()" style="display:none">Delete</button>
+  </div>
+
+  <div id="content-area">
+    <div id="empty-state">
+      <h2>Notes</h2>
+      <p>Select a note or create a new one</p>
+      <button class="btn primary" onclick="newNote()">+ New Note</button>
+    </div>
+    <textarea id="editor" placeholder="Write in markdown... Use [[Note Title]] to link notes." oninput="markDirty()"></textarea>
+    <div id="preview"></div>
+    <div id="graph-container">
+      <svg id="graph-svg"></svg>
+      <div id="graph-legend">
+        <div class="legend-item"><div class="legend-line" style="background:var(--accent)"></div> Wikilink</div>
+        <div class="legend-item"><div class="legend-line" style="background:var(--accent2); border-top: 2px dashed var(--accent2); height:0"></div> Semantic</div>
+        <div class="legend-item"><div style="width:10px;height:10px;border-radius:50%;background:#f5a623;display:inline-block"></div> Memory</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let notes = [];
+let activeNote = null;
+let dirty = false;
+let currentView = 'edit';
+let graphSimulation = null;
+
+// ── Init ─────────────────────────────────────────────────────────────────
+
+async function init() {
+  await loadNotes();
+  if (location.hash) {
+    const id = parseInt(location.hash.slice(1));
+    const note = notes.find(n => n.id === id);
+    if (note) await openNote(note.id);
+  }
+}
+
+async function loadNotes(query = '') {
+  const url = query ? `/api/search?q=${encodeURIComponent(query)}` : '/api/notes';
+  const res = await fetch(url);
+  notes = await res.json();
+  renderList();
+}
+
+function renderList() {
+  const list = document.getElementById('note-list');
+  if (!notes.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No notes found</div>';
+    return;
+  }
+  list.innerHTML = notes.map(n => `
+    <div class="note-item ${activeNote?.id === n.id ? 'active' : ''}" onclick="openNote(${n.id})">
+      <h4>${esc(n.title)}</h4>
+      <div class="meta">${formatDate(n.updated_at)}${n.tags ? ' · ' + n.tags.split(',').map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : ''}</div>
+      ${n.preview ? `<div class="preview">${esc(n.preview)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+// ── Note CRUD ─────────────────────────────────────────────────────────────
+
+async function openNote(id) {
+  if (dirty && activeNote && !confirm('Unsaved changes. Discard?')) return;
+  const res = await fetch(`/api/notes/${id}`);
+  activeNote = await res.json();
+  dirty = false;
+  document.getElementById('note-title-input').value = activeNote.title;
+  document.getElementById('tags-input').value = activeNote.tags || '';
+  document.getElementById('editor').value = activeNote.content || '';
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('save-btn').style.display = '';
+  document.getElementById('delete-btn').style.display = '';
+  location.hash = id;
+  setView(currentView === 'graph' ? 'edit' : currentView);
+  renderList();
+  if (currentView === 'preview') renderPreview();
+}
+
+function newNote() {
+  if (dirty && activeNote && !confirm('Unsaved changes. Discard?')) return;
+  activeNote = null;
+  dirty = false;
+  document.getElementById('note-title-input').value = '';
+  document.getElementById('tags-input').value = '';
+  document.getElementById('editor').value = '';
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('save-btn').style.display = '';
+  document.getElementById('delete-btn').style.display = 'none';
+  setView('edit');
+  document.getElementById('note-title-input').focus();
+  renderList();
+}
+
+async function saveNote() {
+  const title = document.getElementById('note-title-input').value.trim() || 'Untitled';
+  const content = document.getElementById('editor').value;
+  const tags = document.getElementById('tags-input').value.trim();
+  const body = { title, content, tags };
+
+  if (activeNote) {
+    const res = await fetch(`/api/notes/${activeNote.id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    activeNote = await res.json();
+  } else {
+    const res = await fetch('/api/notes', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    activeNote = await res.json();
+    location.hash = activeNote.id;
+    document.getElementById('delete-btn').style.display = '';
+  }
+  dirty = false;
+  document.getElementById('save-btn').classList.remove('primary');
+  document.getElementById('save-btn').textContent = 'Saved ✓';
+  setTimeout(() => { document.getElementById('save-btn').classList.add('primary'); document.getElementById('save-btn').textContent = 'Save'; }, 1500);
+  await loadNotes(document.getElementById('search-input').value);
+  if (currentView === 'preview') renderPreview();
+}
+
+async function deleteNote() {
+  if (!activeNote || !confirm('Delete this note?')) return;
+  await fetch(`/api/notes/${activeNote.id}`, { method: 'DELETE' });
+  activeNote = null;
+  dirty = false;
+  document.getElementById('empty-state').style.display = '';
+  document.getElementById('editor').style.display = 'none';
+  document.getElementById('preview').style.display = 'none';
+  document.getElementById('graph-container').style.display = 'none';
+  document.getElementById('graph-legend').style.display = 'none';
+  document.getElementById('save-btn').style.display = 'none';
+  document.getElementById('delete-btn').style.display = 'none';
+  location.hash = '';
+  await loadNotes();
+}
+
+function markDirty() {
+  dirty = true;
+  document.getElementById('save-btn').classList.add('primary');
+  document.getElementById('save-btn').textContent = 'Save';
+}
+
+// ── Views ─────────────────────────────────────────────────────────────────
+
+function setView(view) {
+  currentView = view;
+  const editing = document.getElementById('empty-state').style.display === 'none';
+  document.getElementById('editor').style.display = (view === 'edit' && editing) ? 'block' : 'none';
+  document.getElementById('preview').style.display = view === 'preview' ? 'block' : 'none';
+  document.getElementById('graph-container').style.display = view === 'graph' ? 'block' : 'none';
+  document.getElementById('graph-legend').style.display = view === 'graph' ? 'block' : 'none';
+  ['edit','preview','graph'].forEach(v => document.getElementById('tab-'+v)?.classList.toggle('active', v === view));
+  if (view === 'preview') renderPreview();
+  if (view === 'graph') renderGraph();
+}
+
+function renderPreview() {
+  const content = document.getElementById('editor').value;
+  // Process wikilinks before markdown
+  const processed = content.replace(/\[\[([^\]]+)\]\]/g, (_, title) => {
+    const note = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
+    return note ? `<a class="wikilink" href="#${note.id}" onclick="openNote(${note.id});return false;">${title}</a>` : `<span style="color:var(--danger)">[[${title}]]</span>`;
+  });
+  document.getElementById('preview').innerHTML = marked.parse(processed);
+}
+
+// ── Graph ─────────────────────────────────────────────────────────────────
+
+async function renderGraph() {
+  const [graphRes, memRes] = await Promise.all([
+    fetch('/api/graph'),
+    fetch('/api/memories')
+  ]);
+  const data = await graphRes.json();
+  const memories = memRes.ok ? await memRes.json() : [];
+
+  // Merge memories as nodes with a 'memory' type prefix so IDs don't clash
+  const memNodes = memories.map(m => ({ id: `m${m.id}`, title: m.text.slice(0, 40), type: 'memory', category: m.category }));
+  const allNodes = [...data.nodes.map(n => ({...n, type: 'note'})), ...memNodes];
+
+  const svg = d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('graph-container');
+  const W = container.clientWidth, H = container.clientHeight;
+  const g = svg.append('g');
+
+  // Zoom
+  svg.call(d3.zoom().scaleExtent([0.2, 4]).on('zoom', e => g.attr('transform', e.transform)));
+
+  // Color scale by tags
+  const tagSet = [...new Set(data.nodes.flatMap(n => n.tags ? n.tags.split(',').map(t => t.trim()) : []))];
+  const color = d3.scaleOrdinal(d3.schemeTableau10).domain(tagSet);
+  const nodeColor = n => {
+    if (n.type === 'memory') return '#f5a623';
+    const tags = n.tags ? n.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+    return tags.length ? color(tags[0]) : '#7c6af7';
+  };
+
+  // Links
+  const link = g.append('g').selectAll('line').data(data.edges).enter().append('line')
+    .attr('class', d => `link type-${d.type}`)
+    .attr('stroke-width', d => d.type === 'link' ? 2 : 1);
+
+  // Nodes
+  const node = g.append('g').selectAll('.node').data(allNodes).enter().append('g')
+    .attr('class', 'node')
+    .call(d3.drag().on('start', dragStart).on('drag', dragged).on('end', dragEnd));
+
+  node.append('circle')
+    .attr('r', d => d.type === 'memory' ? 5 : 8)
+    .attr('fill', nodeColor)
+    .attr('stroke', d => activeNote?.id === d.id ? '#fff' : 'rgba(255,255,255,0.2)')
+    .attr('stroke-dasharray', d => d.type === 'memory' ? '3 2' : null)
+    .on('click', (e, d) => { if (d.type === 'note') { e.stopPropagation(); openNote(d.id); setView('edit'); } });
+
+  node.append('text').attr('dx', d => d.type === 'memory' ? 8 : 12).attr('dy', 4)
+    .attr('fill', d => d.type === 'memory' ? '#f5a623' : 'var(--text)')
+    .text(d => d.title.length > 20 ? d.title.slice(0,18)+'…' : d.title);
+
+  if (graphSimulation) graphSimulation.stop();
+  graphSimulation = d3.forceSimulation(allNodes)
+    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(d => d.type === 'link' ? 80 : 140).strength(d => d.type === 'link' ? 0.8 : 0.3))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(20))
+    .on('tick', () => {
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  function dragStart(e, d) { if (!e.active) graphSimulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+  function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
+  function dragEnd(e, d) { if (!e.active) graphSimulation.alphaTarget(0); d.fx = null; d.fy = null; }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────
+
+let searchTimer;
+function onSearch(q) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadNotes(q), 300);
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveNote(); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'e') { e.preventDefault(); setView(currentView === 'edit' ? 'preview' : 'edit'); }
+});
+
+// ── Utils ─────────────────────────────────────────────────────────────────
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function formatDate(ts) {
+  const d = new Date(ts * 1000), now = new Date();
+  const diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return d.toLocaleDateString();
+}
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+
+init();
+</script>
+</body>
+</html>
