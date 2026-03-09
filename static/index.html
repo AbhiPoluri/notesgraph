@@ -23,11 +23,17 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 #note-list { flex: 1; overflow-y: auto; }
 .note-item { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
 .note-item:hover, .note-item.active { background: #2e2e2e; }
-.note-item.active { border-left: 3px solid var(--accent); padding-left: 11px; }
+.note-item.active { border-left: 3px solid var(--accent2); padding-left: 11px; }
 .note-item h4 { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-item .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .note-item .preview { font-size: 11px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag { display: inline-block; background: #333; color: var(--accent); font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-right: 3px; }
+.mem-item { padding: 11px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; min-height: 44px; }
+.mem-item:hover, .mem-item.active { background: #2e2e2e; }
+.mem-item.active { border-left: 3px solid #f5a623; padding-left: 11px; }
+.mem-item .mem-text { font-size: 12px; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; }
+.mem-item .mem-meta { font-size: 10px; color: var(--muted); margin-top: 4px; display: flex; gap: 6px; }
+.mem-cat { color: #f5a623; }
 #new-note-btn { margin: 12px; padding: 9px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
 #new-note-btn:hover { opacity: 0.85; }
 
@@ -99,21 +105,21 @@ svg { touch-action: none; }
 <body>
 
 <div id="sidebar">
-  <div style="padding:10px 12px; border-bottom:1px solid var(--border);">
-    <button id="new-note-btn" onclick="newNote()">+ New Note</button>
+  <div style="padding:10px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;">
+    <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">Memories</span>
+    <button id="new-note-btn" onclick="newNote()" style="font-size:11px;padding:5px 9px;">+ Note</button>
   </div>
   <div id="search-bar">
-    <input type="text" placeholder="Search notes..." id="search-input" oninput="onSearch(this.value)">
+    <input type="text" placeholder="Search memories..." id="search-input" oninput="onSearch(this.value)">
   </div>
-  <div id="note-list"></div>
-  <div id="memory-panel" style="display:none; flex:1; overflow-y:auto; padding:16px; border-top:1px solid var(--border);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Memory</span>
-      <button onclick="closeMemory()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;">×</button>
+  <div id="memory-list" style="flex:1;overflow-y:auto;"></div>
+  <div id="memory-panel" style="display:none; flex-direction:column; border-top:1px solid var(--border); max-height:55%; overflow-y:auto; padding:14px 14px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div id="memory-category" style="font-size:10px;color:var(--accent);background:#2a2a40;padding:2px 7px;border-radius:3px;display:inline-block;"></div>
+      <button onclick="closeMemory()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 2px;line-height:1;">×</button>
     </div>
-    <div id="memory-category" style="font-size:10px;color:var(--accent);background:#2a2a40;padding:2px 7px;border-radius:3px;display:inline-block;margin-bottom:10px;"></div>
-    <div id="memory-text" style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;"></div>
-    <div id="memory-date" style="font-size:11px;color:var(--muted);margin-top:12px;"></div>
+    <div id="memory-text" style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;flex:1;"></div>
+    <div id="memory-date" style="font-size:11px;color:var(--muted);margin-top:10px;"></div>
   </div>
 </div>
 
@@ -152,7 +158,9 @@ svg { touch-action: none; }
 
 <script>
 let notes = [];
+let memories = [];
 let activeNote = null;
+let activeMemoryId = null;
 let dirty = false;
 let currentView = 'graph';
 let graphSimulation = null;
@@ -160,7 +168,7 @@ let graphSimulation = null;
 // ── Init ─────────────────────────────────────────────────────────────────
 
 async function init() {
-  await loadNotes();
+  await Promise.all([loadNotes(), loadMemoryList()]);
   if (location.hash) {
     const id = parseInt(location.hash.slice(1));
     const note = notes.find(n => n.id === id);
@@ -173,20 +181,28 @@ async function loadNotes(query = '') {
   const url = query ? `/api/search?q=${encodeURIComponent(query)}` : '/api/notes';
   const res = await fetch(url);
   notes = await res.json();
-  renderList();
 }
 
-function renderList() {
-  const list = document.getElementById('note-list');
-  if (!notes.length) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No notes found</div>';
+async function loadMemoryList(query = '') {
+  const res = await fetch('/api/memories');
+  if (!res.ok) return;
+  memories = await res.json();
+  renderMemoryList(query);
+}
+
+function renderMemoryList(query = '') {
+  const list = document.getElementById('memory-list');
+  const filtered = query
+    ? memories.filter(m => m.text.toLowerCase().includes(query.toLowerCase()) || (m.category||'').toLowerCase().includes(query.toLowerCase()))
+    : memories;
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No memories found</div>';
     return;
   }
-  list.innerHTML = notes.map(n => `
-    <div class="note-item ${activeNote?.id === n.id ? 'active' : ''}" onclick="openNote(${n.id})">
-      <h4>${esc(n.title)}</h4>
-      <div class="meta">${formatDate(n.updated_at)}${n.tags ? ' · ' + n.tags.split(',').map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : ''}</div>
-      ${n.preview ? `<div class="preview">${esc(n.preview)}</div>` : ''}
+  list.innerHTML = filtered.map(m => `
+    <div class="mem-item ${activeMemoryId === m.id ? 'active' : ''}" onclick="openMemory(${JSON.stringify(m).replace(/"/g,'&quot;')})">
+      <div class="mem-text">${esc(m.text)}</div>
+      <div class="mem-meta"><span class="mem-cat">${esc(m.category||'general')}</span><span>${formatDate(m.created_at)}</span></div>
     </div>
   `).join('');
 }
@@ -209,7 +225,7 @@ async function openNote(id) {
   document.getElementById('delete-btn').style.display = '';
   location.hash = id;
   setView(currentView === 'graph' ? 'edit' : currentView);
-  renderList();
+  // renderList (notes sidebar replaced by memories list)
   if (currentView === 'preview') renderPreview();
 }
 
@@ -225,7 +241,7 @@ function newNote() {
   document.getElementById('delete-btn').style.display = 'none';
   setView('edit');
   document.getElementById('note-title-input').focus();
-  renderList();
+  // renderList (notes sidebar replaced by memories list)
 }
 
 async function saveNote() {
@@ -247,7 +263,7 @@ async function saveNote() {
   document.getElementById('save-btn').classList.remove('primary');
   document.getElementById('save-btn').textContent = 'Saved ✓';
   setTimeout(() => { document.getElementById('save-btn').classList.add('primary'); document.getElementById('save-btn').textContent = 'Save'; }, 1500);
-  await loadNotes(document.getElementById('search-input').value);
+  await loadNotes();
   if (currentView === 'preview') renderPreview();
 }
 
@@ -380,18 +396,23 @@ async function renderGraph() {
 // ── Memory panel ─────────────────────────────────────────────────────────
 
 function openMemory(mem) {
+  // mem may be object or JSON string from onclick attribute
+  if (typeof mem === 'string') mem = JSON.parse(mem.replace(/&quot;/g, '"'));
+  activeMemoryId = mem.id;
   document.getElementById('memory-text').textContent = mem.text || mem.title;
   document.getElementById('memory-category').textContent = mem.category || 'general';
   document.getElementById('memory-date').textContent = mem.created_at ? formatDate(mem.created_at) : '';
   document.getElementById('memory-panel').style.display = 'flex';
-  document.getElementById('memory-panel').style.flexDirection = 'column';
+  renderMemoryList(document.getElementById('search-input').value);
   // On mobile, open the sidebar
   const sidebar = document.getElementById('sidebar');
   if (!sidebar.classList.contains('open') && window.innerWidth <= 640) toggleSidebar();
 }
 
 function closeMemory() {
+  activeMemoryId = null;
   document.getElementById('memory-panel').style.display = 'none';
+  renderMemoryList(document.getElementById('search-input').value);
 }
 
 // ── Search ────────────────────────────────────────────────────────────────
@@ -399,7 +420,7 @@ function closeMemory() {
 let searchTimer;
 function onSearch(q) {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadNotes(q), 300);
+  searchTimer = setTimeout(() => renderMemoryList(q), 150);
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────
