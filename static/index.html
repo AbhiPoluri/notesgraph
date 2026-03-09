@@ -114,9 +114,9 @@ svg { touch-action: none; }
     <input id="note-title-input" placeholder="Note title..." oninput="markDirty()">
     <input id="tags-input" placeholder="tags, comma separated" oninput="markDirty()">
     <div id="view-tabs">
-      <button class="tab-btn active" onclick="setView('edit')" id="tab-edit">Edit</button>
+      <button class="tab-btn" onclick="setView('edit')" id="tab-edit">Edit</button>
       <button class="tab-btn" onclick="setView('preview')" id="tab-preview">Preview</button>
-      <button class="tab-btn" onclick="setView('graph')" id="tab-graph">Graph</button>
+      <button class="tab-btn active" onclick="setView('graph')" id="tab-graph">Graph</button>
     </div>
     <button class="btn primary" id="save-btn" onclick="saveNote()" style="display:none">Save</button>
     <button class="btn danger" id="delete-btn" onclick="deleteNote()" style="display:none">Delete</button>
@@ -145,7 +145,7 @@ svg { touch-action: none; }
 let notes = [];
 let activeNote = null;
 let dirty = false;
-let currentView = 'edit';
+let currentView = 'graph';
 let graphSimulation = null;
 
 // ── Init ─────────────────────────────────────────────────────────────────
@@ -155,8 +155,9 @@ async function init() {
   if (location.hash) {
     const id = parseInt(location.hash.slice(1));
     const note = notes.find(n => n.id === id);
-    if (note) await openNote(note.id);
+    if (note) { await openNote(note.id); return; }
   }
+  setView('graph');
 }
 
 async function loadNotes(query = '') {
@@ -267,8 +268,14 @@ function markDirty() {
 
 function setView(view) {
   currentView = view;
-  const editing = document.getElementById('empty-state').style.display === 'none';
-  document.getElementById('editor').style.display = (view === 'edit' && editing) ? 'block' : 'none';
+  const hasNote = activeNote !== null || document.getElementById('save-btn').style.display !== 'none';
+  // Graph and Preview are always accessible; Edit shows empty-state when no note active
+  if (view === 'graph' || view === 'preview') {
+    document.getElementById('empty-state').style.display = 'none';
+  } else if (view === 'edit' && !hasNote) {
+    document.getElementById('empty-state').style.display = '';
+  }
+  document.getElementById('editor').style.display = (view === 'edit' && hasNote) ? 'block' : 'none';
   document.getElementById('preview').style.display = view === 'preview' ? 'block' : 'none';
   document.getElementById('graph-container').style.display = view === 'graph' ? 'block' : 'none';
   document.getElementById('graph-legend').style.display = view === 'graph' ? 'block' : 'none';
