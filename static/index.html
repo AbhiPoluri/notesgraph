@@ -106,6 +106,15 @@ svg { touch-action: none; }
     <input type="text" placeholder="Search notes..." id="search-input" oninput="onSearch(this.value)">
   </div>
   <div id="note-list"></div>
+  <div id="memory-panel" style="display:none; flex:1; overflow-y:auto; padding:16px; border-top:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Memory</span>
+      <button onclick="closeMemory()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;">×</button>
+    </div>
+    <div id="memory-category" style="font-size:10px;color:var(--accent);background:#2a2a40;padding:2px 7px;border-radius:3px;display:inline-block;margin-bottom:10px;"></div>
+    <div id="memory-text" style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;"></div>
+    <div id="memory-date" style="font-size:11px;color:var(--muted);margin-top:12px;"></div>
+  </div>
 </div>
 
 <div id="main">
@@ -305,7 +314,7 @@ async function renderGraph() {
   const memories = memRes.ok ? await memRes.json() : [];
 
   // Merge memories as nodes with a 'memory' type prefix so IDs don't clash
-  const memNodes = memories.map(m => ({ id: `m${m.id}`, title: m.text.slice(0, 40), type: 'memory', category: m.category }));
+  const memNodes = memories.map(m => ({ id: `m${m.id}`, title: m.text.slice(0, 40), type: 'memory', category: m.category, text: m.text, created_at: m.created_at }));
   const allNodes = [...data.nodes.map(n => ({...n, type: 'note'})), ...memNodes];
 
   const svg = d3.select('#graph-svg');
@@ -342,7 +351,11 @@ async function renderGraph() {
     .attr('fill', nodeColor)
     .attr('stroke', d => activeNote?.id === d.id ? '#fff' : 'rgba(255,255,255,0.2)')
     .attr('stroke-dasharray', d => d.type === 'memory' ? '3 2' : null)
-    .on('click', (e, d) => { if (d.type === 'note') { e.stopPropagation(); openNote(d.id); setView('edit'); } });
+    .on('click', (e, d) => {
+      e.stopPropagation();
+      if (d.type === 'note') { openNote(d.id); setView('edit'); }
+      else if (d.type === 'memory') { openMemory(d); }
+    });
 
   node.append('text').attr('dx', d => d.type === 'memory' ? 8 : 12).attr('dy', 4)
     .attr('fill', d => d.type === 'memory' ? '#f5a623' : 'var(--text)')
@@ -362,6 +375,23 @@ async function renderGraph() {
   function dragStart(e, d) { if (!e.active) graphSimulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
   function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
   function dragEnd(e, d) { if (!e.active) graphSimulation.alphaTarget(0); d.fx = null; d.fy = null; }
+}
+
+// ── Memory panel ─────────────────────────────────────────────────────────
+
+function openMemory(mem) {
+  document.getElementById('memory-text').textContent = mem.text || mem.title;
+  document.getElementById('memory-category').textContent = mem.category || 'general';
+  document.getElementById('memory-date').textContent = mem.created_at ? formatDate(mem.created_at) : '';
+  document.getElementById('memory-panel').style.display = 'flex';
+  document.getElementById('memory-panel').style.flexDirection = 'column';
+  // On mobile, open the sidebar
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar.classList.contains('open') && window.innerWidth <= 640) toggleSidebar();
+}
+
+function closeMemory() {
+  document.getElementById('memory-panel').style.display = 'none';
 }
 
 // ── Search ────────────────────────────────────────────────────────────────
