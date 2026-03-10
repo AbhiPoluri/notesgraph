@@ -576,6 +576,12 @@ function updateWordCount() {
 // ── Views ─────────────────────────────────────────────────────────────────
 
 function setView(view) {
+  // Switching tabs always exits split mode
+  if (splitActive) {
+    splitActive = false;
+    document.getElementById('content-area').classList.remove('split');
+    document.getElementById('split-btn').classList.remove('active');
+  }
   currentView = view;
   const hasNote = activeNote !== null || document.getElementById('save-btn').style.display !== 'none';
   // Graph and Preview are always accessible; Edit shows empty-state when no note active
@@ -987,8 +993,16 @@ function toggleSplit() {
   area.classList.toggle('split', splitActive);
   btn.classList.toggle('active', splitActive);
   if (splitActive) {
+    // Must be in edit mode to use split
+    currentView = 'edit';
+    ['edit','preview','graph','uploads'].forEach(v => document.getElementById('tab-'+v)?.classList.toggle('active', v === 'edit'));
     document.getElementById('editor').style.display = 'block';
     document.getElementById('preview').style.display = 'block';
+    document.getElementById('graph-container').style.display = 'none';
+    document.getElementById('graph-legend').style.display = 'none';
+    document.getElementById('uploads-view').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('format-bar').style.display = 'flex';
     renderPreview();
   } else {
     setView(currentView);
