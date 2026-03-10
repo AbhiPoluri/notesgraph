@@ -118,6 +118,16 @@ svg { width: 100%; height: 100%; user-select: none; -webkit-user-select: none; c
 .fmt-btn:hover { background:#333; color:var(--text); border-color:var(--border); }
 .fmt-btn.active { background:#2a2a40; color:var(--accent); border-color:var(--accent); }
 
+/* ── Interactive table ── */
+.fmt-table { border-collapse:collapse; width:100%; margin:0.5em 0; }
+.fmt-table th[contenteditable], .fmt-table td[contenteditable] { border:1px solid var(--border); padding:6px 10px; min-width:60px; }
+.fmt-table th[contenteditable] { background:var(--surface); text-align:left; }
+.fmt-table .tbl-ctrl-cell, .fmt-table .tbl-ctrl-row td { border:none !important; background:transparent !important; padding:2px; vertical-align:middle; }
+.fmt-table .tbl-ctrl-row td { text-align:center; }
+.tbl-btn { background:transparent; border:1px solid var(--border); color:var(--muted); width:20px; height:20px; border-radius:3px; cursor:pointer; font-size:13px; line-height:1; padding:0; display:inline-flex; align-items:center; justify-content:center; }
+.tbl-btn:hover { background:#2a2a40; color:var(--accent); border-color:var(--accent); }
+.tbl-rm-btn:hover { background:rgba(231,76,60,0.08); color:var(--danger); border-color:var(--danger); }
+
 /* ── Word count ── */
 #word-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
@@ -1159,14 +1169,141 @@ function fmtInsert(text) {
   markDirty();
 }
 
+function buildInteractiveTable(cols, dataRows) {
+  const cellStyle = 'border:1px solid var(--border);padding:6px 10px;min-width:60px;';
+  const ctrlStyle = 'border:none;padding:2px;background:transparent;width:26px;vertical-align:middle;text-align:center;';
+
+  const table = document.createElement('table');
+  table.className = 'fmt-table';
+
+  // Header row — no control buttons, just data headers
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  for (let c = 0; c < cols; c++) {
+    const th = document.createElement('th');
+    th.contentEditable = 'true';
+    th.textContent = `Header ${c + 1}`;
+    th.style.cssText = cellStyle + 'background:var(--surface);text-align:left;';
+    headerRow.appendChild(th);
+  }
+  // Spacer header cell to align with row-remove buttons
+  const thSpacer = document.createElement('th');
+  thSpacer.className = 'tbl-ctrl-cell';
+  thSpacer.contentEditable = 'false';
+  thSpacer.style.cssText = ctrlStyle;
+  headerRow.appendChild(thSpacer);
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // Body: data rows + one control row at the bottom
+  const tbody = document.createElement('tbody');
+  for (let r = 0; r < dataRows; r++) {
+    tbody.appendChild(_makeTblDataRow(cols, cellStyle, ctrlStyle));
+  }
+
+  // Control row: colspan spans data cols, corner has + add-row, nothing else
+  const ctrlRow = document.createElement('tr');
+  ctrlRow.className = 'tbl-ctrl-row';
+  ctrlRow.contentEditable = 'false';
+  const tdSpan = document.createElement('td');
+  tdSpan.className = 'tbl-ctrl-cell';
+  tdSpan.contentEditable = 'false';
+  tdSpan.colSpan = cols;
+  tdSpan.style.cssText = 'border:none;padding:4px 2px;background:transparent;';
+  tdSpan.innerHTML = `<button class="tbl-btn tbl-add-row-btn" onclick="addTblRow(this.closest('table'))" title="Add row" style="width:auto;padding:2px 8px;font-size:11px;">+ Row</button>  <button class="tbl-btn tbl-add-row-btn" onclick="addTblCol(this.closest('table'))" title="Add column" style="width:auto;padding:2px 8px;font-size:11px;">+ Col</button>`;
+  ctrlRow.appendChild(tdSpan);
+  // Empty corner to align
+  const tdCorner = document.createElement('td');
+  tdCorner.className = 'tbl-ctrl-cell';
+  tdCorner.contentEditable = 'false';
+  tdCorner.style.cssText = ctrlStyle;
+  ctrlRow.appendChild(tdCorner);
+  tbody.appendChild(ctrlRow);
+  table.appendChild(tbody);
+  return table;
+}
+
+function _makeTblDataRow(cols, cellStyle, ctrlStyle) {
+  const cs = cellStyle || 'border:1px solid var(--border);padding:6px 10px;min-width:60px;';
+  const ctrl = ctrlStyle || 'border:none;padding:2px;background:transparent;width:26px;vertical-align:middle;text-align:center;';
+  const tr = document.createElement('tr');
+  for (let c = 0; c < cols; c++) {
+    const td = document.createElement('td');
+    td.contentEditable = 'true';
+    td.textContent = 'Cell';
+    td.style.cssText = cs;
+    tr.appendChild(td);
+  }
+  const tdCtrl = document.createElement('td');
+  tdCtrl.className = 'tbl-ctrl-cell';
+  tdCtrl.contentEditable = 'false';
+  tdCtrl.style.cssText = ctrl;
+  tdCtrl.innerHTML = `<button class="tbl-btn tbl-rm-btn" onclick="rmTblRow(this)" title="Remove row">−</button>`;
+  tr.appendChild(tdCtrl);
+  return tr;
+}
+
+function addTblRow(table) {
+  const ctrlRow = table.querySelector('.tbl-ctrl-row');
+  const cols = table.querySelectorAll('thead tr th:not(.tbl-ctrl-cell)').length;
+  table.querySelector('tbody').insertBefore(_makeTblDataRow(cols), ctrlRow);
+  markDirty();
+}
+
+function rmTblRow(btn) {
+  const row = btn.closest('tr');
+  const dataRows = row.closest('tbody').querySelectorAll('tr:not(.tbl-ctrl-row)');
+  if (dataRows.length <= 1) { showToast('Need at least one row'); return; }
+  row.remove();
+  markDirty();
+}
+
+function addTblCol(table) {
+  const cols = table.querySelectorAll('thead tr th:not(.tbl-ctrl-cell)').length;
+  // Add header cell
+  const headerRow = table.querySelector('thead tr');
+  const th = document.createElement('th');
+  th.contentEditable = 'true';
+  th.textContent = `Header ${cols + 1}`;
+  th.style.cssText = 'border:1px solid var(--border);padding:6px 10px;min-width:60px;background:var(--surface);text-align:left;';
+  headerRow.insertBefore(th, headerRow.querySelector('.tbl-ctrl-cell'));
+  // Add data cells to each data row
+  table.querySelectorAll('tbody tr:not(.tbl-ctrl-row)').forEach(row => {
+    const td = document.createElement('td');
+    td.contentEditable = 'true';
+    td.textContent = 'Cell';
+    td.style.cssText = 'border:1px solid var(--border);padding:6px 10px;min-width:60px;';
+    row.insertBefore(td, row.querySelector('.tbl-ctrl-cell'));
+  });
+  // Update colspan on ctrl row span cell
+  const spanCell = table.querySelector('.tbl-ctrl-row .tbl-ctrl-cell[colspan]');
+  if (spanCell) spanCell.colSpan = cols + 1;
+  markDirty();
+}
+
 function fmtInsertTable() {
-  const tbl = `
-| Header 1 | Header 2 | Header 3 |
-| -------- | -------- | -------- |
-| Cell     | Cell     | Cell     |
-| Cell     | Cell     | Cell     |
-`;
-  fmtInsert(tbl);
+  // Auto-switch to Live mode so the table is immediately visible
+  if (!livePreviewActive) toggleLivePreview();
+
+  const table = buildInteractiveTable(3, 2);
+  const preview = document.getElementById('preview');
+  preview.focus();
+  const sel = window.getSelection();
+  let range = sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!range || !preview.contains(range.commonAncestorContainer)) {
+    range = document.createRange();
+    range.selectNodeContents(preview);
+    range.collapse(false);
+  }
+  range.collapse(false);
+  const br = document.createElement('br');
+  range.insertNode(br);
+  range.insertNode(table);
+  range.setStartAfter(br);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  markDirty();
 }
 
 function fmtInsertCodeBlock() {
@@ -1221,9 +1358,12 @@ function richHtmlToMd(el) {
       case 'a':  md += `[${node.innerText}](${node.getAttribute('href') || ''})`; break;
       case 'img': md += node.getAttribute('data-md') || `![${node.alt||''}](${node.src||''})`; break;
       case 'table': {
-        const rows = node.querySelectorAll('tr');
-        rows.forEach((row, ri) => {
-          const cells = Array.from(row.querySelectorAll('th,td')).map(c => c.innerText.trim());
+        const dataRows = Array.from(node.querySelectorAll('tr')).filter(r => !r.classList.contains('tbl-ctrl-row'));
+        dataRows.forEach((row, ri) => {
+          const cells = Array.from(row.querySelectorAll('th,td'))
+            .filter(c => !c.classList.contains('tbl-ctrl-cell'))
+            .map(c => c.textContent.trim().replace(/\|/g, '\\|'));
+          if (!cells.length) return;
           md += '\n| ' + cells.join(' | ') + ' |';
           if (ri === 0) md += '\n| ' + cells.map(() => '---').join(' | ') + ' |';
         });
@@ -1237,18 +1377,24 @@ function richHtmlToMd(el) {
 }
 
 function toggleLivePreview() {
-  livePreviewActive = !livePreviewActive;
   const btn = document.getElementById('fmt-live-btn');
-  btn.classList.toggle('active', livePreviewActive);
   const area = document.getElementById('content-area');
   const editor = document.getElementById('editor');
   const preview = document.getElementById('preview');
 
-  if (livePreviewActive) {
-    // Render BEFORE switching mode so getContent() still reads the raw editor
-    livePreviewActive = false;
-    renderPreview();
+  if (!livePreviewActive) {
+    // Capture raw markdown NOW, before any display changes
+    const rawMd = htmlToMd(editor);
     livePreviewActive = true;
+    btn.classList.add('active');
+    // Render into preview from the captured markdown
+    const processed = rawMd.replace(/\[\[([^\]]+)\]\]/g, (_, title) => {
+      const note = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
+      return note
+        ? `<a class="wikilink" href="#${note.id}" onclick="openNote(${note.id});return false;">${title}</a>`
+        : `<span style="color:var(--danger)">[[${title}]]</span>`;
+    });
+    preview.innerHTML = marked.parse(processed);
     preview.contentEditable = 'true';
     preview.style.display = 'block';
     preview.style.outline = 'none';
@@ -1259,6 +1405,8 @@ function toggleLivePreview() {
   } else {
     // Sync back: convert preview HTML → markdown → update raw editor
     const md = richHtmlToMd(preview);
+    livePreviewActive = false;
+    btn.classList.remove('active');
     preview.contentEditable = 'false';
     preview.removeEventListener('input', onLivePreviewInput);
     preview.style.display = 'none';
