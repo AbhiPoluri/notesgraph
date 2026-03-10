@@ -392,9 +392,31 @@ def upload_attachment():
     is_image = ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
     return jsonify({"url": url, "filename": filename, "is_image": is_image})
 
+@app.route("/api/attachments", methods=["GET"])
+def list_attachments():
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+    files = []
+    for p in sorted(ATTACHMENTS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        if p.is_file():
+            ext = p.suffix.lower()
+            # Strip timestamp prefix to get original name
+            name = p.name
+            original = "_".join(name.split("_")[1:]) if "_" in name else name
+            files.append({
+                "filename": name,
+                "original": original,
+                "url": f"/attachments/{name}",
+                "is_image": ext in IMAGE_EXTS,
+                "size": p.stat().st_size,
+                "created_at": int(p.stat().st_mtime),
+            })
+    return jsonify(files)
+
 @app.route("/attachments/<path:filename>")
 def serve_attachment(filename):
-    return send_from_directory(str(ATTACHMENTS_DIR), filename)
+    resp = send_from_directory(str(ATTACHMENTS_DIR), filename)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
 
 
 @app.route("/api/server-info")
