@@ -127,6 +127,7 @@ svg { width: 100%; height: 100%; user-select: none; -webkit-user-select: none; c
 .tbl-btn { background:transparent; border:1px solid var(--border); color:var(--muted); width:20px; height:20px; border-radius:3px; cursor:pointer; font-size:13px; line-height:1; padding:0; display:inline-flex; align-items:center; justify-content:center; }
 .tbl-btn:hover { background:#2a2a40; color:var(--accent); border-color:var(--accent); }
 .tbl-rm-btn:hover { background:rgba(231,76,60,0.08); color:var(--danger); border-color:var(--danger); }
+.tbl-rm-col-btn { float:right; margin-left:4px; margin-top:1px; }
 
 /* ── Word count ── */
 #word-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -1176,15 +1177,11 @@ function buildInteractiveTable(cols, dataRows) {
   const table = document.createElement('table');
   table.className = 'fmt-table';
 
-  // Header row — no control buttons, just data headers
+  // Header row — each header has a float-right − button to remove that column
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
   for (let c = 0; c < cols; c++) {
-    const th = document.createElement('th');
-    th.contentEditable = 'true';
-    th.textContent = `Header ${c + 1}`;
-    th.style.cssText = cellStyle + 'background:var(--surface);text-align:left;';
-    headerRow.appendChild(th);
+    headerRow.appendChild(_makeTblHeader(`Header ${c + 1}`, c, cellStyle));
   }
   // Spacer header cell to align with row-remove buttons
   const thSpacer = document.createElement('th');
@@ -1221,6 +1218,23 @@ function buildInteractiveTable(cols, dataRows) {
   tbody.appendChild(ctrlRow);
   table.appendChild(tbody);
   return table;
+}
+
+function _makeTblHeader(label, colIdx, cellStyle) {
+  const cs = cellStyle || 'border:1px solid var(--border);padding:6px 10px;min-width:60px;';
+  const th = document.createElement('th');
+  th.contentEditable = 'true';
+  th.style.cssText = cs + 'background:var(--surface);text-align:left;';
+  // Float-right − button (contenteditable=false so it doesn't get typed into)
+  const btn = document.createElement('button');
+  btn.className = 'tbl-btn tbl-rm-btn tbl-rm-col-btn';
+  btn.contentEditable = 'false';
+  btn.title = 'Remove column';
+  btn.textContent = '−';
+  btn.setAttribute('onclick', `rmTblCol(this.closest('table'),${colIdx})`);
+  th.appendChild(btn);
+  th.appendChild(document.createTextNode(label));
+  return th;
 }
 
 function _makeTblDataRow(cols, cellStyle, ctrlStyle) {
@@ -1260,13 +1274,9 @@ function rmTblRow(btn) {
 
 function addTblCol(table) {
   const cols = table.querySelectorAll('thead tr th:not(.tbl-ctrl-cell)').length;
-  // Add header cell
+  // Add header cell with − button
   const headerRow = table.querySelector('thead tr');
-  const th = document.createElement('th');
-  th.contentEditable = 'true';
-  th.textContent = `Header ${cols + 1}`;
-  th.style.cssText = 'border:1px solid var(--border);padding:6px 10px;min-width:60px;background:var(--surface);text-align:left;';
-  headerRow.insertBefore(th, headerRow.querySelector('.tbl-ctrl-cell'));
+  headerRow.insertBefore(_makeTblHeader(`Header ${cols + 1}`, cols, 'border:1px solid var(--border);padding:6px 10px;min-width:60px;'), headerRow.querySelector('.tbl-ctrl-cell'));
   // Add data cells to each data row
   table.querySelectorAll('tbody tr:not(.tbl-ctrl-row)').forEach(row => {
     const td = document.createElement('td');
@@ -1278,7 +1288,28 @@ function addTblCol(table) {
   // Update colspan on ctrl row span cell
   const spanCell = table.querySelector('.tbl-ctrl-row .tbl-ctrl-cell[colspan]');
   if (spanCell) spanCell.colSpan = cols + 1;
+  updateTblColBtns(table);
   markDirty();
+}
+
+function rmTblCol(table, colIdx) {
+  const headers = table.querySelectorAll('thead tr th:not(.tbl-ctrl-cell)');
+  if (headers.length <= 1) { showToast('Need at least one column'); return; }
+  headers[colIdx]?.remove();
+  table.querySelectorAll('tbody tr:not(.tbl-ctrl-row)').forEach(row => {
+    row.querySelectorAll('td:not(.tbl-ctrl-cell)')[colIdx]?.remove();
+  });
+  const spanCell = table.querySelector('.tbl-ctrl-row .tbl-ctrl-cell[colspan]');
+  if (spanCell) spanCell.colSpan = Math.max(1, (spanCell.colSpan || 1) - 1);
+  updateTblColBtns(table);
+  markDirty();
+}
+
+function updateTblColBtns(table) {
+  table.querySelectorAll('thead tr th:not(.tbl-ctrl-cell)').forEach((th, i) => {
+    const btn = th.querySelector('.tbl-rm-col-btn');
+    if (btn) btn.setAttribute('onclick', `rmTblCol(this.closest('table'),${i})`);
+  });
 }
 
 function fmtInsertTable() {
@@ -1362,7 +1393,11 @@ function richHtmlToMd(el) {
         dataRows.forEach((row, ri) => {
           const cells = Array.from(row.querySelectorAll('th,td'))
             .filter(c => !c.classList.contains('tbl-ctrl-cell'))
-            .map(c => c.textContent.trim().replace(/\|/g, '\\|'));
+            .map(c => {
+              const clone = c.cloneNode(true);
+              clone.querySelectorAll('.tbl-rm-col-btn').forEach(b => b.remove());
+              return clone.textContent.trim().replace(/\|/g, '\\|');
+            });
           if (!cells.length) return;
           md += '\n| ' + cells.join(' | ') + ' |';
           if (ri === 0) md += '\n| ' + cells.map(() => '---').join(' | ') + ' |';
