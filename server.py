@@ -15,7 +15,6 @@ import os
 import re
 import socket
 import sqlite3
-import subprocess
 import time
 import urllib.request
 import zipfile
@@ -446,19 +445,49 @@ def toggle_wifi():
 
 
 def ensure_ssl_cert(cert_path: Path, key_path: Path):
-    """Generate a self-signed cert if it doesn't exist."""
+    """Generate a self-signed cert using Python's cryptography library."""
     if cert_path.exists() and key_path.exists():
         return
     print("Generating self-signed SSL certificate...")
-    subprocess.run([
-        "openssl", "req", "-x509", "-newkey", "rsa:2048",
-        "-keyout", str(key_path),
-        "-out", str(cert_path),
-        "-days", "3650",
-        "-nodes",
-        "-subj", "/CN=notesgraph",
-        "-addext", "subjectAltName=IP:127.0.0.1,IP:::1"
-    ], check=True, capture_output=True)
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509 import IPAddress
+        import ipaddress, datetime
+    except ImportError:
+        raise SystemExit(
+            "Missing dependency: run  uv run --with flask,werkzeug,cryptography python3 server.py --https\n"
+            "or: pip install cryptography"
+        )
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "notesgraph")])
+    now = datetime.datetime.utcnow()
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(
+            x509.SubjectAlternativeName([
+                IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+                IPAddress(ipaddress.IPv6Address("::1")),
+            ]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    key_path.write_bytes(key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ))
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     print(f"Certificate saved to {cert_path}")
 
 
