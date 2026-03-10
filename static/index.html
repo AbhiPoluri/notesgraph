@@ -310,6 +310,7 @@ svg { touch-action: none; }
 marked.use({ gfm: true, breaks: false });
 
 let notes = [];
+let livePreviewActive = false;
 let memories = [];
 let activeNote = null;
 let activeMemoryId = null;
@@ -358,7 +359,10 @@ function htmlToMd(el) {
   return md.replace(/\n$/, '');
 }
 
-function getContent() { return htmlToMd(document.getElementById('editor')); }
+function getContent() {
+  if (livePreviewActive) return richHtmlToMd(document.getElementById('preview'));
+  return htmlToMd(document.getElementById('editor'));
+}
 function setContent(text) { document.getElementById('editor').innerHTML = mdToHtml(text); }
 
 // ── Init ─────────────────────────────────────────────────────────────────
@@ -1075,8 +1079,10 @@ async function toggleWifi() {
 // ── Format bar actions ────────────────────────────────────────────────────
 
 function fmtGetSel() {
-  const editor = document.getElementById('editor');
-  editor.focus();
+  const target = livePreviewActive
+    ? document.getElementById('preview')
+    : document.getElementById('editor');
+  target.focus();
   const sel = window.getSelection();
   if (!sel.rangeCount) return { sel, range: null, text: '' };
   const range = sel.getRangeAt(0);
@@ -1140,15 +1146,15 @@ document.addEventListener('selectionchange', () => {
 });
 
 function fmtLine(prefix) {
-  const editor = document.getElementById('editor');
-  editor.focus();
+  const target = livePreviewActive ? document.getElementById('preview') : document.getElementById('editor');
+  target.focus();
   document.execCommand('insertText', false, '\n' + prefix);
   markDirty();
 }
 
 function fmtInsert(text) {
-  const editor = document.getElementById('editor');
-  editor.focus();
+  const target = livePreviewActive ? document.getElementById('preview') : document.getElementById('editor');
+  target.focus();
   document.execCommand('insertText', false, text);
   markDirty();
 }
@@ -1180,8 +1186,6 @@ function fmtInsertLink() {
 }
 
 // ── Live preview toggle ───────────────────────────────────────────────────
-
-let livePreviewActive = false;
 
 function richHtmlToMd(el) {
   let md = '';
@@ -1241,13 +1245,16 @@ function toggleLivePreview() {
   const preview = document.getElementById('preview');
 
   if (livePreviewActive) {
-    // Render current markdown into preview, make it editable, hide raw editor
+    // Render BEFORE switching mode so getContent() still reads the raw editor
+    livePreviewActive = false;
     renderPreview();
+    livePreviewActive = true;
     preview.contentEditable = 'true';
     preview.style.display = 'block';
     preview.style.outline = 'none';
     editor.style.display = 'none';
     area.classList.remove('split');
+    preview.focus();
     preview.addEventListener('input', onLivePreviewInput);
   } else {
     // Sync back: convert preview HTML → markdown → update raw editor
@@ -1263,16 +1270,6 @@ function toggleLivePreview() {
 
 function onLivePreviewInput() {
   markDirty();
-}
-
-// Override getContent/saveNote to pull from preview when live mode is on
-const _origGetContent = getContent;
-function getContent() {
-  if (livePreviewActive) {
-    const preview = document.getElementById('preview');
-    return richHtmlToMd(preview);
-  }
-  return _origGetContent();
 }
 
 // Wire up live preview re-render on editor keystrokes (raw mode only)
