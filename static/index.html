@@ -201,7 +201,7 @@ svg { touch-action: none; }
   #view-tabs .tab-btn { flex: 1; text-align: center; padding: 8px 4px; min-height: 36px; }
   #editor, #preview { padding: 16px; }
   .btn { padding: 8px 10px; min-height: 36px; }
-  #save-btn, #delete-btn { font-size: 13px; }
+  #save-btn { font-size: 13px; }
 }
 </style>
 </head>
@@ -254,7 +254,6 @@ svg { touch-action: none; }
     </div>
     <input type="file" id="uploads-file-input" style="display:none" multiple onchange="handleUploadsFileSelect(this)">
     <button class="btn primary" id="save-btn" onclick="saveNote()" style="display:none">Save</button>
-    <button class="btn danger" id="delete-btn" onclick="deleteNote()" style="display:none;"></button>
     <button class="btn" id="export-btn" title="Export note as .md" onclick="exportNote()" style="display:none">↓</button>
     <button class="btn" id="split-btn" title="Split view (edit + preview)" onclick="toggleSplit()" style="display:none">⊟</button>
     <button class="btn" id="focus-btn" title="Focus mode (F)" onclick="toggleFocus()">⛶</button>
@@ -466,8 +465,7 @@ async function openNote(id) {
   setContent(activeNote.content || '');
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('save-btn').style.display = '';
-  document.getElementById('delete-btn').style.display = '';
-  // attach-btn removed
+
   document.getElementById('export-btn').style.display = '';
   document.getElementById('split-btn').style.display = '';
   location.hash = id;
@@ -486,8 +484,7 @@ function newNote() {
   setContent('');
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('save-btn').style.display = '';
-  document.getElementById('delete-btn').style.display = 'none';
-  // attach-btn removed
+
   document.getElementById('export-btn').style.display = '';
   document.getElementById('split-btn').style.display = '';
   setView('edit');
@@ -518,8 +515,7 @@ async function saveNote() {
       const res = await fetch('/api/notes', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
       activeNote = await res.json();
       location.hash = activeNote.id;
-      document.getElementById('delete-btn').style.display = '';
-    }
+        }
     dirty = false;
     btn.classList.remove('primary');
     btn.textContent = 'Saved ✓';
@@ -535,10 +531,6 @@ async function saveNote() {
   }
 }
 
-async function deleteNote() {
-  if (!activeNote || !confirm('Delete this note?')) return;
-  await deleteNoteById(activeNote.id, { stopPropagation: () => {} }, true);
-}
 
 async function deleteNoteById(id, e, skipConfirm) {
   e.stopPropagation();
@@ -553,8 +545,7 @@ async function deleteNoteById(id, e, skipConfirm) {
     document.getElementById('graph-container').style.display = 'none';
     document.getElementById('graph-legend').style.display = 'none';
     document.getElementById('save-btn').style.display = 'none';
-    document.getElementById('delete-btn').style.display = 'none';
-    document.getElementById('export-btn').style.display = 'none';
+      document.getElementById('export-btn').style.display = 'none';
     document.getElementById('split-btn').style.display = 'none';
     location.hash = '';
   }
