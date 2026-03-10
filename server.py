@@ -8,6 +8,7 @@ Web UI:  http://0.0.0.0:8766
 """
 
 import argparse
+import io
 import json
 import math
 import re
@@ -15,6 +16,7 @@ import socket
 import sqlite3
 import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -310,6 +312,67 @@ def upload_file():
     note_id = cur.lastrowid
     db.close()
     return jsonify({"id": note_id, "title": title, "size": len(raw)})
+
+
+TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".rst", ".csv", ".json", ".py",
+                   ".js", ".ts", ".html", ".css", ".yaml", ".yml", ".sh",
+                   ".toml", ".xml", ".log", ".tex", ".sql", ".r", ".rb", ".go",
+                   ".java", ".c", ".cpp", ".h", ".swift", ".kt"}
+
+@app.route("/api/upload-zip", methods=["POST"])
+def upload_zip():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    raw = f.read()
+    if not zipfile.is_zipfile(io.BytesIO(raw)):
+        return jsonify({"error": "Not a valid zip file"}), 400
+
+    created = []
+    skipped = []
+    db = get_db()
+    now = int(time.time())
+
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        for info in zf.infolist():
+            name = info.filename
+            if info.is_dir() or name.startswith("__MACOSX") or name.startswith("."):
+                continue
+            ext = Path(name).suffix.lower()
+            if ext not in TEXT_EXTENSIONS:
+                skipped.append(name)
+                continue
+            try:
+                content_bytes = zf.read(name)
+                content = None
+                for enc in ("utf-8", "latin-1"):
+                    try:
+                        content = content_bytes.decode(enc)
+                        break
+                    except Exception:
+                        pass
+                if content is None:
+                    skipped.append(name)
+                    continue
+                stem = Path(name).stem or Path(name).name
+                title = stem.replace("-", " ").replace("_", " ").strip()
+                if not title:
+                    continue
+                vec = embed(title + " " + content[:500])
+                cur = db.execute(
+                    "INSERT INTO notes (title, content, tags, created_at, updated_at, embedding) VALUES (?, ?, ?, ?, ?, ?)",
+                    (title, content, "zip-upload", now, now, json.dumps(vec) if vec else None)
+                )
+                db.commit()
+                created.append({"id": cur.lastrowid, "title": title})
+            except Exception:
+                skipped.append(name)
+
+    db.close()
+    return jsonify({"created": created, "skipped": skipped, "count": len(created)})
 
 
 @app.route("/api/attachments", methods=["POST"])

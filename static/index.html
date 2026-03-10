@@ -49,7 +49,9 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 #tags-input { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 4px 8px; border-radius: 4px; outline: none; width: 120px; }
 
 #content-area { flex: 1; overflow: hidden; position: relative; }
-#editor { width: 100%; height: 100%; background: var(--bg); color: var(--text); border: none; outline: none; resize: none; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 14px; line-height: 1.7; padding: 24px 32px; display: none; }
+#editor { width: 100%; height: 100%; background: var(--bg); color: var(--text); border: none; outline: none; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 14px; line-height: 1.7; padding: 24px 32px; display: none; overflow-y: auto; white-space: pre-wrap; word-break: break-word; box-sizing: border-box; }
+#editor:empty:before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+#editor .editor-img { max-width: min(480px, 90%); max-height: 360px; border-radius: 6px; display: block; margin: 4px 0; cursor: default; vertical-align: middle; }
 #preview { height: 100%; overflow-y: auto; padding: 24px 32px; display: none; }
 #preview h1, #preview h2, #preview h3 { margin: 1em 0 0.4em; }
 #preview p { margin: 0.6em 0; line-height: 1.7; }
@@ -122,6 +124,18 @@ body.focus #preview { padding: 48px 20%; }
 .sidebar-tab.active { color:var(--text); border-bottom-color:var(--accent); }
 .sidebar-tab:hover:not(.active) { color:var(--text); }
 
+/* ── Uploads panel ── */
+#uploads-panel { border-top:1px solid var(--border); }
+#uploads-toggle { width:100%; background:transparent; border:none; color:var(--muted); padding:10px 14px; text-align:left; cursor:pointer; font-size:12px; display:flex; align-items:center; gap:6px; }
+#uploads-toggle:hover { color:var(--text); }
+#uploads-toggle .arrow { margin-left:auto; transition:transform 0.2s; }
+#uploads-toggle.open .arrow { transform:rotate(90deg); }
+#uploads-body { display:none; padding:0 14px 12px; }
+#uploads-toggle.open + #uploads-body { display:block; }
+#zip-drop { border:2px dashed var(--border); border-radius:6px; padding:14px; text-align:center; font-size:12px; color:var(--muted); cursor:pointer; transition:border-color 0.15s,color 0.15s; }
+#zip-drop:hover, #zip-drop.over { border-color:var(--accent); color:var(--accent); }
+#zip-results { margin-top:8px; font-size:11px; color:var(--muted); max-height:80px; overflow-y:auto; line-height:1.6; }
+
 /* ── LAN footer ── */
 #lan-footer { padding:10px 14px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:6px; }
 #lan-footer a { color:var(--accent2); text-decoration:none; }
@@ -186,6 +200,22 @@ svg { touch-action: none; }
     <div id="memory-text" style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;flex:1;"></div>
     <div id="memory-date" style="font-size:11px;color:var(--muted);margin-top:10px;"></div>
   </div>
+  <div id="uploads-panel">
+    <button id="uploads-toggle" onclick="toggleUploadsPanel()">
+      <span>📁</span> Uploads
+      <span class="arrow">›</span>
+    </button>
+    <div id="uploads-body">
+      <div id="zip-drop" onclick="document.getElementById('zip-file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('over')"
+           ondragleave="this.classList.remove('over')"
+           ondrop="handleZipDrop(event)">
+        Drop .zip here or click to browse
+        <input type="file" id="zip-file-input" accept=".zip" style="display:none" onchange="uploadZip(this)">
+      </div>
+      <div id="zip-results"></div>
+    </div>
+  </div>
   <div id="lan-footer"></div>
 </div>
 
@@ -221,7 +251,7 @@ svg { touch-action: none; }
       <p>Select a note or create a new one</p>
       <button class="btn primary" onclick="newNote()">+ New Note</button>
     </div>
-    <textarea id="editor" placeholder="Write in markdown... Use [[Note Title]] to link notes." oninput="markDirty()"></textarea>
+    <div id="editor" contenteditable="true" spellcheck="false" data-placeholder="Write in markdown... Use [[Note Title]] to link notes." oninput="markDirty()"></div>
     <div id="preview"></div>
     <div id="graph-container">
       <svg id="graph-svg"></svg>
@@ -246,6 +276,49 @@ let dirty = false;
 let currentView = 'graph';
 let graphSimulation = null;
 let sidebarTab = 'notes';
+
+// ── Editor helpers (contenteditable ↔ markdown) ──────────────────────────
+
+function mdToHtml(text) {
+  // Extract image markdown, escape the rest, restore images as <img>
+  const imgs = [];
+  const tokenized = (text || '').replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (full, alt, src) => {
+    imgs.push({ full, alt, src });
+    return `\x01${imgs.length - 1}\x01`;
+  });
+  const lines = tokenized.split('\n');
+  const htmlLines = lines.map(line =>
+    line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/\x01(\d+)\x01/g, (_, i) => {
+          const { full, alt, src } = imgs[+i];
+          return `<img src="${src}" alt="${alt.replace(/"/g,'&quot;')}" data-md="${full.replace(/"/g,'&quot;')}" class="editor-img">`;
+        })
+  );
+  return htmlLines.join('<br>');
+}
+
+function htmlToMd(el) {
+  let md = '';
+  function walk(node) {
+    if (node.nodeType === 3) {
+      md += node.textContent;
+    } else if (node.tagName === 'IMG') {
+      md += node.getAttribute('data-md') || `![${node.alt||''}](${node.getAttribute('src')||''})`;
+    } else if (node.tagName === 'BR') {
+      md += '\n';
+    } else if (node.tagName === 'DIV' || node.tagName === 'P') {
+      if (md && !md.endsWith('\n')) md += '\n';
+      for (const c of node.childNodes) walk(c);
+    } else {
+      for (const c of node.childNodes) walk(c);
+    }
+  }
+  for (const c of el.childNodes) walk(c);
+  return md.replace(/\n$/, '');
+}
+
+function getContent() { return htmlToMd(document.getElementById('editor')); }
+function setContent(text) { document.getElementById('editor').innerHTML = mdToHtml(text); }
 
 // ── Init ─────────────────────────────────────────────────────────────────
 
@@ -330,7 +403,7 @@ async function openNote(id) {
   dirty = false;
   document.getElementById('note-title-input').value = activeNote.title;
   document.getElementById('tags-input').value = activeNote.tags || '';
-  document.getElementById('editor').value = activeNote.content || '';
+  setContent(activeNote.content || '');
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('save-btn').style.display = '';
   document.getElementById('delete-btn').style.display = '';
@@ -338,7 +411,8 @@ async function openNote(id) {
   document.getElementById('export-btn').style.display = '';
   document.getElementById('split-btn').style.display = '';
   location.hash = id;
-  setView(currentView === 'graph' ? 'edit' : currentView);
+  const targetView = currentView === 'graph' ? 'edit' : currentView;
+  setView(targetView);
   renderNoteList();
   if (currentView === 'preview') renderPreview();
 }
@@ -349,7 +423,7 @@ function newNote() {
   dirty = false;
   document.getElementById('note-title-input').value = '';
   document.getElementById('tags-input').value = '';
-  document.getElementById('editor').value = '';
+  setContent('');
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('save-btn').style.display = '';
   document.getElementById('delete-btn').style.display = 'none';
@@ -360,13 +434,19 @@ function newNote() {
   document.getElementById('note-title-input').focus();
 }
 
+let saving = false;
+
 async function saveNote() {
+  if (saving) return;
+  saving = true;
+  clearTimeout(autoSaveTimer);  // prevent auto-save firing mid-save
+
   const btn = document.getElementById('save-btn');
   btn.textContent = 'Saving…';
   btn.disabled = true;
 
   const title = document.getElementById('note-title-input').value.trim() || 'Untitled';
-  const content = document.getElementById('editor').value;
+  const content = getContent();
   const tags = document.getElementById('tags-input').value.trim();
   const body = { title, content, tags };
 
@@ -390,6 +470,8 @@ async function saveNote() {
     btn.textContent = 'Error';
     btn.disabled = false;
     setTimeout(() => { btn.classList.add('primary'); btn.textContent = 'Save'; }, 2000);
+  } finally {
+    saving = false;
   }
 }
 
@@ -426,7 +508,7 @@ function markDirty() {
 }
 
 function updateWordCount() {
-  const text = document.getElementById('editor').value;
+  const text = getContent();
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   const chars = text.length;
   const wc = document.getElementById('word-count');
@@ -454,7 +536,7 @@ function setView(view) {
 }
 
 function renderPreview() {
-  const content = document.getElementById('editor').value;
+  const content = getContent();
   // Process wikilinks before markdown
   const processed = content.replace(/\[\[([^\]]+)\]\]/g, (_, title) => {
     const note = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
@@ -667,20 +749,46 @@ async function attachFile(input) {
 
 function insertAttachment(url, filename, isImage) {
   const editor = document.getElementById('editor');
-  const md = isImage ? `![${filename}](${url})` : `[${filename}](${url})`;
-  const start = editor.selectionStart;
-  const before = editor.value.slice(0, start);
-  const after = editor.value.slice(editor.selectionEnd);
-  editor.value = before + '\n' + md + '\n' + after;
-  editor.selectionStart = editor.selectionEnd = start + md.length + 2;
+  editor.focus();
+  const sel = window.getSelection();
+  let range = sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!range || !editor.contains(range.commonAncestorContainer)) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  range.deleteContents();
+  if (isImage) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = filename;
+    img.setAttribute('data-md', `![${filename}](${url})`);
+    img.className = 'editor-img';
+    const br1 = document.createElement('br');
+    const br2 = document.createElement('br');
+    range.insertNode(br2);
+    range.insertNode(img);
+    range.insertNode(br1);
+    range.setStartAfter(br2);
+    range.collapse(true);
+  } else {
+    const text = document.createTextNode(`[${filename}](${url})`);
+    range.insertNode(text);
+    range.setStartAfter(text);
+    range.collapse(true);
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
   markDirty();
 }
 
-// Paste image from clipboard directly into editor
-document.getElementById('editor') && document.addEventListener('paste', async e => {
-  if (document.activeElement !== document.getElementById('editor')) return;
+// Paste handler for editor (contenteditable)
+document.addEventListener('paste', async e => {
+  const editor = document.getElementById('editor');
+  if (!editor.contains(document.activeElement) && document.activeElement !== editor) return;
   const items = e.clipboardData?.items;
   if (!items) return;
+  // Image paste → upload and insert inline
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       e.preventDefault();
@@ -694,8 +802,14 @@ document.getElementById('editor') && document.addEventListener('paste', async e 
         if (res.ok) { insertAttachment(data.url, data.filename, true); showToast('Image pasted'); }
         else showToast(`Error: ${data.error}`, true);
       } catch (err) { showToast('Paste failed', true); }
-      break;
+      return;
     }
+  }
+  // Plain text paste — strip HTML formatting
+  const text = e.clipboardData.getData('text/plain');
+  if (text) {
+    e.preventDefault();
+    document.execCommand('insertText', false, text);
   }
 });
 
@@ -710,12 +824,51 @@ document.addEventListener('drop', async e => {
   if (file) await doUpload(file);
 });
 
+// ── Uploads panel ─────────────────────────────────────────────────────────
+
+function toggleUploadsPanel() {
+  const btn = document.getElementById('uploads-toggle');
+  btn.classList.toggle('open');
+}
+
+async function uploadZip(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  await doZipUpload(file);
+}
+
+function handleZipDrop(e) {
+  e.preventDefault();
+  document.getElementById('zip-drop').classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if (file) doZipUpload(file);
+}
+
+async function doZipUpload(file) {
+  const results = document.getElementById('zip-results');
+  results.textContent = `Uploading ${file.name}…`;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/upload-zip', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { results.textContent = `Error: ${data.error}`; return; }
+    results.innerHTML = `<strong>${data.count} note${data.count !== 1 ? 's' : ''} created</strong><br>` +
+      data.created.map(n => `<span style="color:var(--accent2)" onclick="openNote(${n.id})" style="cursor:pointer">↗ ${esc(n.title)}</span>`).join('<br>') +
+      (data.skipped.length ? `<br><span style="color:var(--muted)">Skipped: ${data.skipped.length} file(s)</span>` : '');
+    await loadNotes();
+  } catch (e) {
+    results.textContent = 'Upload failed';
+  }
+}
+
 // ── Export note ───────────────────────────────────────────────────────────
 
 function exportNote() {
   if (!activeNote) return;
   const title = document.getElementById('note-title-input').value || activeNote.title || 'note';
-  const content = document.getElementById('editor').value;
+  const content = getContent();
   const blob = new Blob([content], { type: 'text/markdown' });
   const a = document.createElement('a');
   a.download = title.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() + '.md';
