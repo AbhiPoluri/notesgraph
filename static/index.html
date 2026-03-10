@@ -116,9 +116,22 @@ body.focus #preview { padding: 48px 20%; }
 .cmd-item .cmd-title { font-weight:500; }
 .cmd-item .cmd-preview { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+/* ── Sidebar tabs ── */
+#sidebar-tabs { display:flex; border-bottom:1px solid var(--border); }
+.sidebar-tab { flex:1; padding:9px 0; text-align:center; font-size:12px; font-weight:500; cursor:pointer; color:var(--muted); background:transparent; border:none; border-bottom:2px solid transparent; transition:color 0.15s,border-color 0.15s; }
+.sidebar-tab.active { color:var(--text); border-bottom-color:var(--accent); }
+.sidebar-tab:hover:not(.active) { color:var(--text); }
+
 /* ── LAN footer ── */
-#lan-footer { padding:10px 14px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
+#lan-footer { padding:10px 14px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:6px; }
 #lan-footer a { color:var(--accent2); text-decoration:none; }
+#wifi-toggle-row { display:flex; align-items:center; gap:8px; }
+#wifi-toggle { position:relative; width:32px; height:18px; background:#444; border-radius:9px; border:none; cursor:pointer; transition:background 0.2s; padding:0; flex-shrink:0; }
+#wifi-toggle.on { background:var(--accent2); }
+#wifi-toggle::after { content:''; position:absolute; top:2px; left:2px; width:14px; height:14px; background:#fff; border-radius:50%; transition:left 0.2s; }
+#wifi-toggle.on::after { left:16px; }
+#wifi-label { font-size:11px; color:var(--muted); }
+#wifi-url { font-size:11px; }
 
 /* ── Mobile ── */
 #sidebar-toggle { display: none; background: transparent; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 0 8px; min-width: 44px; min-height: 44px; }
@@ -153,13 +166,18 @@ svg { touch-action: none; }
 
 <div id="sidebar">
   <div style="padding:10px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;">
-    <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">Memories</span>
+    <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">notesgraph</span>
     <button id="new-note-btn" onclick="newNote()" style="font-size:11px;padding:5px 9px;">+ Note</button>
   </div>
-  <div id="search-bar">
-    <input type="text" placeholder="Search memories..." id="search-input" oninput="onSearch(this.value)">
+  <div id="sidebar-tabs">
+    <button class="sidebar-tab active" id="stab-notes" onclick="setSidebarTab('notes')">Notes</button>
+    <button class="sidebar-tab" id="stab-memories" onclick="setSidebarTab('memories')">Memories</button>
   </div>
-  <div id="memory-list" style="flex:1;overflow-y:auto;"></div>
+  <div id="search-bar">
+    <input type="text" placeholder="Search notes..." id="search-input" oninput="onSearch(this.value)">
+  </div>
+  <div id="note-list" style="flex:1;overflow-y:auto;"></div>
+  <div id="memory-list" style="flex:1;overflow-y:auto;display:none;"></div>
   <div id="memory-panel" style="display:none; flex-direction:column; border-top:1px solid var(--border); max-height:55%; overflow-y:auto; padding:14px 14px 16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div id="memory-category" style="font-size:10px;color:var(--accent);background:#2a2a40;padding:2px 7px;border-radius:3px;display:inline-block;"></div>
@@ -227,6 +245,7 @@ let activeMemoryId = null;
 let dirty = false;
 let currentView = 'graph';
 let graphSimulation = null;
+let sidebarTab = 'notes';
 
 // ── Init ─────────────────────────────────────────────────────────────────
 
@@ -244,6 +263,35 @@ async function loadNotes(query = '') {
   const url = query ? `/api/search?q=${encodeURIComponent(query)}` : '/api/notes';
   const res = await fetch(url);
   notes = await res.json();
+  renderNoteList(query);
+}
+
+function renderNoteList(query = '') {
+  const list = document.getElementById('note-list');
+  const filtered = query
+    ? notes.filter(n => n.title.toLowerCase().includes(query.toLowerCase()) || (n.preview||'').toLowerCase().includes(query.toLowerCase()) || (n.tags||'').toLowerCase().includes(query.toLowerCase()))
+    : notes;
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + (query ? 'No results' : 'No notes yet') + '</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(n => `
+    <div class="note-item ${activeNote?.id === n.id ? 'active' : ''}" onclick="openNote(${n.id})">
+      <h4>${esc(n.title)}</h4>
+      <div class="meta">${formatDate(n.updated_at)}${n.tags ? ' · ' + n.tags.split(',').map(t=>`<span class="tag">${esc(t.trim())}</span>`).join('') : ''}</div>
+      ${n.preview ? `<div class="preview">${esc(n.preview)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function setSidebarTab(tab) {
+  sidebarTab = tab;
+  document.getElementById('stab-notes').classList.toggle('active', tab === 'notes');
+  document.getElementById('stab-memories').classList.toggle('active', tab === 'memories');
+  document.getElementById('note-list').style.display = tab === 'notes' ? '' : 'none';
+  document.getElementById('memory-list').style.display = tab === 'memories' ? '' : 'none';
+  document.getElementById('search-input').placeholder = tab === 'notes' ? 'Search notes...' : 'Search memories...';
+  document.getElementById('search-input').value = '';
 }
 
 async function loadMemoryList(query = '') {
@@ -291,7 +339,7 @@ async function openNote(id) {
   document.getElementById('split-btn').style.display = '';
   location.hash = id;
   setView(currentView === 'graph' ? 'edit' : currentView);
-  // renderList (notes sidebar replaced by memories list)
+  renderNoteList();
   if (currentView === 'preview') renderPreview();
 }
 
@@ -310,7 +358,6 @@ function newNote() {
   document.getElementById('split-btn').style.display = '';
   setView('edit');
   document.getElementById('note-title-input').focus();
-  // renderList (notes sidebar replaced by memories list)
 }
 
 async function saveNote() {
@@ -520,7 +567,11 @@ function closeMemory() {
 let searchTimer;
 function onSearch(q) {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => renderMemoryList(q), 150);
+  if (sidebarTab === 'notes') {
+    searchTimer = setTimeout(() => loadNotes(q), 300);
+  } else {
+    searchTimer = setTimeout(() => renderMemoryList(q), 150);
+  }
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -757,16 +808,36 @@ document.getElementById('cmd-palette').addEventListener('click', e => {
   if (e.target === document.getElementById('cmd-palette')) closeCmdPalette();
 });
 
-// ── LAN info ─────────────────────────────────────────────────────────────
+// ── WiFi toggle ───────────────────────────────────────────────────────────
 
-fetch('/api/server-info').then(r => r.json()).then(d => {
+let _lanIp = null, _lanPort = 8766;
+
+function renderWifiFooter(enabled, lanIp, port) {
+  _lanIp = lanIp; _lanPort = port;
   const footer = document.getElementById('lan-footer');
   if (!footer) return;
-  if (d.host === '127.0.0.1') {
-    footer.textContent = 'Local only';
-  } else if (d.lan_ip) {
-    footer.innerHTML = `WiFi: <a href="http://${d.lan_ip}:8766" target="_blank">${d.lan_ip}:8766</a>`;
-  }
+  const urlHtml = enabled && lanIp
+    ? `<div id="wifi-url">On phone: <a href="http://${lanIp}:${port}" target="_blank">${lanIp}:${port}</a></div>`
+    : '';
+  footer.innerHTML = `
+    <div id="wifi-toggle-row">
+      <button id="wifi-toggle" class="${enabled ? 'on' : ''}" onclick="toggleWifi()" title="${enabled ? 'Disable WiFi' : 'Enable WiFi'}"></button>
+      <span id="wifi-label">WiFi ${enabled ? 'on' : 'off'}</span>
+    </div>
+    ${urlHtml}
+  `;
+}
+
+async function toggleWifi() {
+  try {
+    const res = await fetch('/api/wifi', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
+    const d = await res.json();
+    renderWifiFooter(d.wifi_enabled, d.lan_ip, _lanPort);
+  } catch(e) {}
+}
+
+fetch('/api/server-info').then(r => r.json()).then(d => {
+  renderWifiFooter(d.wifi_enabled, d.lan_ip, d.port || 8766);
 }).catch(() => {});
 
 init();

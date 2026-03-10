@@ -82,6 +82,16 @@ def extract_links(content: str) -> list[str]:
 
 app = Flask(__name__, static_folder=str(STATIC_DIR))
 
+wifi_enabled = False  # default: local only
+LOCALHOST_ADDRS = {"127.0.0.1", "::1"}
+
+@app.before_request
+def check_wifi_lock():
+    if not wifi_enabled and request.remote_addr not in LOCALHOST_ADDRS:
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "WiFi access is disabled"}), 403
+        return "WiFi access is disabled. Enable it in notesgraph.", 403
+
 @app.route("/")
 def index():
     return send_from_directory(str(STATIC_DIR), "index.html")
@@ -330,25 +340,43 @@ def server_info():
         lan_ip = socket.gethostbyname(socket.gethostname())
     except Exception:
         lan_ip = None
-    return jsonify({"host": app.config.get("HOST", "0.0.0.0"), "lan_ip": lan_ip})
+    port = app.config.get("PORT", 8766)
+    return jsonify({"wifi_enabled": wifi_enabled, "lan_ip": lan_ip, "port": port})
+
+@app.route("/api/wifi", methods=["POST"])
+def toggle_wifi():
+    global wifi_enabled
+    data = request.json or {}
+    if "enabled" in data:
+        wifi_enabled = bool(data["enabled"])
+    else:
+        wifi_enabled = not wifi_enabled
+    try:
+        lan_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        lan_ip = None
+    return jsonify({"wifi_enabled": wifi_enabled, "lan_ip": lan_ip})
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local", action="store_true", help="Listen on localhost only (no WiFi access)")
+    parser.add_argument("--wifi", action="store_true", help="Start with WiFi access enabled (default: local only)")
     parser.add_argument("--port", type=int, default=8766)
     args = parser.parse_args()
 
-    host = "127.0.0.1" if args.local else "0.0.0.0"
-    app.config["HOST"] = host
+    if args.wifi:
+        wifi_enabled = True
 
-    if args.local:
-        print(f"notesgraph running at http://localhost:{args.port} (local only)")
+    app.config["PORT"] = args.port
+
+    try:
+        lan_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        lan_ip = "your-mac-ip"
+
+    print(f"notesgraph running at http://localhost:{args.port}")
+    if wifi_enabled:
+        print(f"WiFi: http://{lan_ip}:{args.port}")
     else:
-        try:
-            lan_ip = socket.gethostbyname(socket.gethostname())
-        except Exception:
-            lan_ip = "your-mac-ip"
-        print(f"notesgraph running at http://0.0.0.0:{args.port}")
-        print(f"On your phone: http://{lan_ip}:{args.port}")
-    app.run(host=host, port=args.port, debug=False)
+        print("WiFi: disabled (toggle in app to enable)")
+    app.run(host="0.0.0.0", port=args.port, debug=False)
