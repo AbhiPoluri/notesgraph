@@ -1183,6 +1183,55 @@ function fmtInsertLink() {
 
 let livePreviewActive = false;
 
+function richHtmlToMd(el) {
+  let md = '';
+  function walk(node) {
+    if (node.nodeType === 3) { md += node.textContent; return; }
+    const tag = node.tagName?.toLowerCase();
+    const ch = () => { for (const c of node.childNodes) walk(c); };
+    switch (tag) {
+      case 'strong': case 'b': md += '**'; ch(); md += '**'; break;
+      case 'em':     case 'i': md += '*';  ch(); md += '*';  break;
+      case 'del':    case 's': md += '~~'; ch(); md += '~~'; break;
+      case 'code':
+        if (node.closest('pre')) ch();
+        else { md += '`'; ch(); md += '`'; }
+        break;
+      case 'pre': md += '\n```\n'; ch(); md += '\n```\n'; break;
+      case 'h1': md += '\n# ';   ch(); md += '\n'; break;
+      case 'h2': md += '\n## ';  ch(); md += '\n'; break;
+      case 'h3': md += '\n### '; ch(); md += '\n'; break;
+      case 'h4': md += '\n#### ';ch(); md += '\n'; break;
+      case 'p':  if (md && !md.endsWith('\n')) md += '\n'; ch(); md += '\n'; break;
+      case 'li': {
+        const ordered = node.parentElement?.tagName.toLowerCase() === 'ol';
+        const idx = ordered ? (Array.from(node.parentElement.children).indexOf(node) + 1) + '. ' : '- ';
+        const checkbox = node.querySelector('input[type="checkbox"]');
+        const prefix = checkbox ? (checkbox.checked ? '- [x] ' : '- [ ] ') : idx;
+        md += '\n' + prefix; ch(); break;
+      }
+      case 'ul': case 'ol': ch(); md += '\n'; break;
+      case 'blockquote': md += '\n> '; ch(); break;
+      case 'br': md += '\n'; break;
+      case 'hr': md += '\n---\n'; break;
+      case 'a':  md += `[${node.innerText}](${node.getAttribute('href') || ''})`; break;
+      case 'img': md += node.getAttribute('data-md') || `![${node.alt||''}](${node.src||''})`; break;
+      case 'table': {
+        const rows = node.querySelectorAll('tr');
+        rows.forEach((row, ri) => {
+          const cells = Array.from(row.querySelectorAll('th,td')).map(c => c.innerText.trim());
+          md += '\n| ' + cells.join(' | ') + ' |';
+          if (ri === 0) md += '\n| ' + cells.map(() => '---').join(' | ') + ' |';
+        });
+        md += '\n'; break;
+      }
+      default: ch(); break;
+    }
+  }
+  for (const c of el.childNodes) walk(c);
+  return md.replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function toggleLivePreview() {
   livePreviewActive = !livePreviewActive;
   const btn = document.getElementById('fmt-live-btn');
@@ -1190,19 +1239,43 @@ function toggleLivePreview() {
   const area = document.getElementById('content-area');
   const editor = document.getElementById('editor');
   const preview = document.getElementById('preview');
+
   if (livePreviewActive) {
-    area.classList.add('split');
-    editor.style.display = 'block';
-    preview.style.display = 'block';
+    // Render current markdown into preview, make it editable, hide raw editor
     renderPreview();
-  } else {
+    preview.contentEditable = 'true';
+    preview.style.display = 'block';
+    preview.style.outline = 'none';
+    editor.style.display = 'none';
     area.classList.remove('split');
+    preview.addEventListener('input', onLivePreviewInput);
+  } else {
+    // Sync back: convert preview HTML → markdown → update raw editor
+    const md = richHtmlToMd(preview);
+    preview.contentEditable = 'false';
+    preview.removeEventListener('input', onLivePreviewInput);
     preview.style.display = 'none';
     editor.style.display = 'block';
+    setContent(md);
+    markDirty();
   }
 }
 
-// Wire up live preview on every keystroke
+function onLivePreviewInput() {
+  markDirty();
+}
+
+// Override getContent/saveNote to pull from preview when live mode is on
+const _origGetContent = getContent;
+function getContent() {
+  if (livePreviewActive) {
+    const preview = document.getElementById('preview');
+    return richHtmlToMd(preview);
+  }
+  return _origGetContent();
+}
+
+// Wire up live preview re-render on editor keystrokes (raw mode only)
 document.getElementById('editor').addEventListener('input', () => {
   if (livePreviewActive) renderPreview();
 });
