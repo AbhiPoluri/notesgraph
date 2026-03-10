@@ -266,6 +266,8 @@ svg { touch-action: none; }
     <button class="fmt-btn" onclick="fmtInsertCodeBlock()" title="Code block">``` Block</button>
     <button class="fmt-btn" onclick="fmtInsert('\n---\n')" title="Divider">— HR</button>
     <button class="fmt-btn" onclick="fmtInsertLink()" title="Link">Link</button>
+    <div style="width:1px;height:16px;background:var(--border);margin:0 4px;"></div>
+    <button class="fmt-btn" id="fmt-live-btn" onclick="toggleLivePreview()" title="Live preview while typing">Live</button>
   </div>
 
   <div id="content-area">
@@ -577,6 +579,12 @@ function setView(view) {
   if (view === 'preview') renderPreview();
   if (view === 'graph') renderGraph();
   if (view === 'uploads') loadUploadsGallery();
+  // Turn off live preview when switching away from edit
+  if (view !== 'edit' && livePreviewActive) {
+    livePreviewActive = false;
+    document.getElementById('fmt-live-btn')?.classList.remove('active');
+    document.getElementById('content-area')?.classList.remove('split');
+  }
 }
 
 function renderPreview() {
@@ -1170,6 +1178,34 @@ function fmtInsertLink() {
   range.insertNode(node);
   markDirty();
 }
+
+// ── Live preview toggle ───────────────────────────────────────────────────
+
+let livePreviewActive = false;
+
+function toggleLivePreview() {
+  livePreviewActive = !livePreviewActive;
+  const btn = document.getElementById('fmt-live-btn');
+  btn.classList.toggle('active', livePreviewActive);
+  const area = document.getElementById('content-area');
+  const editor = document.getElementById('editor');
+  const preview = document.getElementById('preview');
+  if (livePreviewActive) {
+    area.classList.add('split');
+    editor.style.display = 'block';
+    preview.style.display = 'block';
+    renderPreview();
+  } else {
+    area.classList.remove('split');
+    preview.style.display = 'none';
+    editor.style.display = 'block';
+  }
+}
+
+// Wire up live preview on every keystroke
+document.getElementById('editor').addEventListener('input', () => {
+  if (livePreviewActive) renderPreview();
+});
 
 // Cmd+B / Cmd+I shortcuts in editor
 document.getElementById('editor').addEventListener('keydown', e => {
