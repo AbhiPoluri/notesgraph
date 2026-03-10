@@ -7,22 +7,28 @@ Storage: ~/.notesgraph/notes.db
 Web UI:  http://0.0.0.0:8766
 """
 
+import argparse
 import json
 import math
 import re
+import socket
 import sqlite3
 import time
 import urllib.request
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.utils import secure_filename
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
 DB_PATH = Path.home() / ".notesgraph" / "notes.db"
 MEM_DB_PATH = Path.home() / ".abhimem" / "memory.db"
 STATIC_DIR = Path(__file__).parent / "static"
+ATTACHMENTS_DIR = Path.home() / ".notesgraph" / "attachments"
 EMBED_MODEL = "nomic-embed-text"
+
+ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── DB setup ────────────────────────────────────────────────────────────────
 
@@ -215,6 +221,35 @@ def graph():
 
     return jsonify({"nodes": nodes, "edges": edges})
 
+@app.route("/api/memory-edges")
+def memory_edges():
+    if not MEM_DB_PATH.exists():
+        return jsonify([])
+    try:
+        db = sqlite3.connect(str(MEM_DB_PATH))
+        db.row_factory = sqlite3.Row
+        rows = db.execute(
+            "SELECT id, embedding FROM memories WHERE embedding IS NOT NULL"
+        ).fetchall()
+        db.close()
+    except Exception:
+        return jsonify([])
+
+    data = [(r["id"], json.loads(r["embedding"])) for r in rows]
+    edges = []
+    for i, (id_a, emb_a) in enumerate(data):
+        for id_b, emb_b in data[i+1:]:
+            sim = cosine_sim(emb_a, emb_b)
+            if sim > 0.72:
+                edges.append({
+                    "source": f"m{id_a}",
+                    "target": f"m{id_b}",
+                    "type": "memory-similar",
+                    "weight": round(sim, 3)
+                })
+    return jsonify(edges)
+
+
 @app.route("/api/memories", methods=["GET"])
 def list_memories():
     if not MEM_DB_PATH.exists():
@@ -230,7 +265,90 @@ def list_memories():
     except Exception:
         return jsonify([])
 
+@app.route("/api/upload", methods=["POST"])
+def upload_file():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    filename = secure_filename(f.filename)
+    raw = f.read()
+
+    # Decode text content
+    for enc in ("utf-8", "latin-1"):
+        try:
+            content = raw.decode(enc)
+            break
+        except Exception:
+            content = None
+    if content is None:
+        return jsonify({"error": "File is not readable text"}), 400
+
+    # Strip leading/trailing whitespace, use filename (without extension) as title
+    stem = Path(filename).stem or filename
+    title = stem.replace("-", " ").replace("_", " ").strip()
+    now = int(time.time())
+    vec = embed(title + " " + content[:500])
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO notes (title, content, tags, created_at, updated_at, embedding) VALUES (?, ?, ?, ?, ?, ?)",
+        (title, content, "uploaded", now, now, json.dumps(vec) if vec else None)
+    )
+    db.commit()
+    note_id = cur.lastrowid
+    db.close()
+    return jsonify({"id": note_id, "title": title, "size": len(raw)})
+
+
+@app.route("/api/attachments", methods=["POST"])
+def upload_attachment():
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    filename = secure_filename(f.filename)
+    # Make filename unique with timestamp prefix
+    unique_name = f"{int(time.time() * 1000)}_{filename}"
+    dest = ATTACHMENTS_DIR / unique_name
+    f.save(str(dest))
+    url = f"/attachments/{unique_name}"
+    ext = Path(filename).suffix.lower()
+    is_image = ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+    return jsonify({"url": url, "filename": filename, "is_image": is_image})
+
+@app.route("/attachments/<path:filename>")
+def serve_attachment(filename):
+    return send_from_directory(str(ATTACHMENTS_DIR), filename)
+
+
+@app.route("/api/server-info")
+def server_info():
+    try:
+        lan_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        lan_ip = None
+    return jsonify({"host": app.config.get("HOST", "0.0.0.0"), "lan_ip": lan_ip})
+
+
 if __name__ == "__main__":
-    print(f"notesgraph running at http://0.0.0.0:8766")
-    print(f"On your phone: http://[your-mac-ip]:8766")
-    app.run(host="0.0.0.0", port=8766, debug=False)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local", action="store_true", help="Listen on localhost only (no WiFi access)")
+    parser.add_argument("--port", type=int, default=8766)
+    args = parser.parse_args()
+
+    host = "127.0.0.1" if args.local else "0.0.0.0"
+    app.config["HOST"] = host
+
+    if args.local:
+        print(f"notesgraph running at http://localhost:{args.port} (local only)")
+    else:
+        try:
+            lan_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            lan_ip = "your-mac-ip"
+        print(f"notesgraph running at http://0.0.0.0:{args.port}")
+        print(f"On your phone: http://{lan_ip}:{args.port}")
+    app.run(host=host, port=args.port, debug=False)

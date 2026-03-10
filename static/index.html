@@ -62,18 +62,21 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 #preview table { border-collapse: collapse; width: 100%; margin: 1em 0; }
 #preview th, #preview td { border: 1px solid var(--border); padding: 8px 12px; }
 #preview th { background: var(--surface); }
+#preview img { max-width: 100%; border-radius: 6px; margin: 0.5em 0; display: block; }
 #empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); gap: 12px; }
 #empty-state h2 { font-size: 18px; color: var(--text); }
 
 /* ── Graph ── */
 #graph-container { width: 100%; height: 100%; display: none; }
-svg { width: 100%; height: 100%; }
+svg { width: 100%; height: 100%; user-select: none; -webkit-user-select: none; cursor: default; }
+.node { cursor: pointer; }
 .node circle { stroke-width: 1.5px; cursor: pointer; transition: r 0.2s; }
 .node circle:hover { r: 10; }
-.node text { font-size: 11px; fill: var(--text); pointer-events: none; }
+.node text { font-size: 11px; fill: var(--text); pointer-events: none; cursor: pointer; }
 .link { stroke-opacity: 0.4; }
 .link.type-link { stroke: var(--accent); }
 .link.type-similar { stroke: var(--accent2); stroke-dasharray: 4 2; }
+.link.type-memory-similar { stroke: #f5a623; stroke-dasharray: 3 3; }
 #graph-legend { position: absolute; bottom: 16px; left: 16px; background: rgba(0,0,0,0.7); padding: 10px 14px; border-radius: 6px; font-size: 11px; display: none; }
 .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .legend-line { width: 20px; height: 2px; }
@@ -82,6 +85,40 @@ svg { width: 100%; height: 100%; }
 #view-tabs { display: flex; gap: 4px; }
 .tab-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
 .tab-btn.active { background: var(--surface); color: var(--text); }
+
+/* ── Upload drop zone ── */
+#drop-overlay { display:none; position:fixed; inset:0; background:rgba(124,106,247,0.15); border:3px dashed var(--accent); z-index:200; align-items:center; justify-content:center; font-size:20px; color:var(--accent); pointer-events:none; }
+#drop-overlay.active { display:flex; }
+#upload-toast { position:fixed; bottom:24px; right:24px; background:var(--surface); border:1px solid var(--border); padding:10px 16px; border-radius:6px; font-size:13px; z-index:300; display:none; }
+
+/* ── Word count ── */
+#word-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* ── Split view ── */
+#content-area.split { display: flex; }
+#content-area.split #editor { display: block !important; width: 50%; border-right: 1px solid var(--border); }
+#content-area.split #preview { display: block !important; width: 50%; }
+
+/* ── Focus mode ── */
+body.focus #sidebar { display: none; }
+body.focus #toolbar { display: none; }
+body.focus #editor { padding: 48px 20%; }
+body.focus #preview { padding: 48px 20%; }
+
+/* ── Command palette ── */
+#cmd-palette { display:none; position:fixed; inset:0; z-index:400; background:rgba(0,0,0,0.6); align-items:flex-start; justify-content:center; padding-top:15vh; }
+#cmd-palette.open { display:flex; }
+#cmd-palette-box { background:var(--surface); border:1px solid var(--border); border-radius:10px; width:520px; max-width:90vw; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.6); }
+#cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid var(--border); color:var(--text); font-size:15px; padding:14px 16px; outline:none; }
+#cmd-results { max-height:320px; overflow-y:auto; }
+.cmd-item { padding:10px 16px; cursor:pointer; font-size:13px; display:flex; flex-direction:column; gap:2px; }
+.cmd-item:hover, .cmd-item.selected { background:#2e2e2e; }
+.cmd-item .cmd-title { font-weight:500; }
+.cmd-item .cmd-preview { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── LAN footer ── */
+#lan-footer { padding:10px 14px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
+#lan-footer a { color:var(--accent2); text-decoration:none; }
 
 /* ── Mobile ── */
 #sidebar-toggle { display: none; background: transparent; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 0 8px; min-width: 44px; min-height: 44px; }
@@ -104,6 +141,16 @@ svg { touch-action: none; }
 </head>
 <body>
 
+<div id="drop-overlay">Drop file to create note</div>
+<div id="upload-toast"></div>
+
+<div id="cmd-palette">
+  <div id="cmd-palette-box">
+    <input id="cmd-input" placeholder="Go to note..." oninput="cmdFilter(this.value)" autocomplete="off">
+    <div id="cmd-results"></div>
+  </div>
+</div>
+
 <div id="sidebar">
   <div style="padding:10px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;">
     <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;">Memories</span>
@@ -121,6 +168,7 @@ svg { touch-action: none; }
     <div id="memory-text" style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;flex:1;"></div>
     <div id="memory-date" style="font-size:11px;color:var(--muted);margin-top:10px;"></div>
   </div>
+  <div id="lan-footer"></div>
 </div>
 
 <div id="main">
@@ -135,6 +183,18 @@ svg { touch-action: none; }
     </div>
     <button class="btn primary" id="save-btn" onclick="saveNote()" style="display:none">Save</button>
     <button class="btn danger" id="delete-btn" onclick="deleteNote()" style="display:none">Delete</button>
+    <label class="btn" id="upload-btn" title="Upload a text file as a note" style="cursor:pointer">
+      Upload
+      <input type="file" id="file-input" accept=".txt,.md,.markdown,.csv,.json,.py,.js,.ts,.html,.css,.yaml,.yml,.sh" style="display:none" onchange="uploadFile(this)">
+    </label>
+    <label class="btn" id="attach-btn" title="Attach image or file" style="cursor:pointer;display:none">
+      Attach
+      <input type="file" id="attach-input" style="display:none" onchange="attachFile(this)">
+    </label>
+    <button class="btn" id="export-btn" title="Export note as .md" onclick="exportNote()" style="display:none">↓</button>
+    <button class="btn" id="split-btn" title="Split view (edit + preview)" onclick="toggleSplit()" style="display:none">⊟</button>
+    <button class="btn" id="focus-btn" title="Focus mode (F)" onclick="toggleFocus()">⛶</button>
+    <span id="word-count"></span>
   </div>
 
   <div id="content-area">
@@ -150,6 +210,7 @@ svg { touch-action: none; }
       <div id="graph-legend">
         <div class="legend-item"><div class="legend-line" style="background:var(--accent)"></div> Wikilink</div>
         <div class="legend-item"><div class="legend-line" style="background:var(--accent2); border-top: 2px dashed var(--accent2); height:0"></div> Semantic</div>
+        <div class="legend-item"><div class="legend-line" style="background:#f5a623; border-top: 2px dashed #f5a623; height:0"></div> Memory link</div>
         <div class="legend-item"><div style="width:10px;height:10px;border-radius:50%;background:#f5a623;display:inline-block"></div> Memory</div>
       </div>
     </div>
@@ -157,6 +218,8 @@ svg { touch-action: none; }
 </div>
 
 <script>
+marked.use({ gfm: true, breaks: false });
+
 let notes = [];
 let memories = [];
 let activeNote = null;
@@ -223,6 +286,9 @@ async function openNote(id) {
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('save-btn').style.display = '';
   document.getElementById('delete-btn').style.display = '';
+  document.getElementById('attach-btn').style.display = '';
+  document.getElementById('export-btn').style.display = '';
+  document.getElementById('split-btn').style.display = '';
   location.hash = id;
   setView(currentView === 'graph' ? 'edit' : currentView);
   // renderList (notes sidebar replaced by memories list)
@@ -239,32 +305,45 @@ function newNote() {
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('save-btn').style.display = '';
   document.getElementById('delete-btn').style.display = 'none';
+  document.getElementById('attach-btn').style.display = '';
+  document.getElementById('export-btn').style.display = '';
+  document.getElementById('split-btn').style.display = '';
   setView('edit');
   document.getElementById('note-title-input').focus();
   // renderList (notes sidebar replaced by memories list)
 }
 
 async function saveNote() {
+  const btn = document.getElementById('save-btn');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
   const title = document.getElementById('note-title-input').value.trim() || 'Untitled';
   const content = document.getElementById('editor').value;
   const tags = document.getElementById('tags-input').value.trim();
   const body = { title, content, tags };
 
-  if (activeNote) {
-    const res = await fetch(`/api/notes/${activeNote.id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    activeNote = await res.json();
-  } else {
-    const res = await fetch('/api/notes', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    activeNote = await res.json();
-    location.hash = activeNote.id;
-    document.getElementById('delete-btn').style.display = '';
+  try {
+    if (activeNote) {
+      const res = await fetch(`/api/notes/${activeNote.id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      activeNote = await res.json();
+    } else {
+      const res = await fetch('/api/notes', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      activeNote = await res.json();
+      location.hash = activeNote.id;
+      document.getElementById('delete-btn').style.display = '';
+    }
+    dirty = false;
+    btn.classList.remove('primary');
+    btn.textContent = 'Saved ✓';
+    setTimeout(() => { btn.classList.add('primary'); btn.textContent = 'Save'; btn.disabled = false; }, 1500);
+    await loadNotes();
+    if (currentView === 'preview') renderPreview();
+  } catch (e) {
+    btn.textContent = 'Error';
+    btn.disabled = false;
+    setTimeout(() => { btn.classList.add('primary'); btn.textContent = 'Save'; }, 2000);
   }
-  dirty = false;
-  document.getElementById('save-btn').classList.remove('primary');
-  document.getElementById('save-btn').textContent = 'Saved ✓';
-  setTimeout(() => { document.getElementById('save-btn').classList.add('primary'); document.getElementById('save-btn').textContent = 'Save'; }, 1500);
-  await loadNotes();
-  if (currentView === 'preview') renderPreview();
 }
 
 async function deleteNote() {
@@ -279,14 +358,32 @@ async function deleteNote() {
   document.getElementById('graph-legend').style.display = 'none';
   document.getElementById('save-btn').style.display = 'none';
   document.getElementById('delete-btn').style.display = 'none';
+  document.getElementById('attach-btn').style.display = 'none';
+  document.getElementById('export-btn').style.display = 'none';
+  document.getElementById('split-btn').style.display = 'none';
   location.hash = '';
   await loadNotes();
 }
 
+let autoSaveTimer = null;
+
 function markDirty() {
   dirty = true;
-  document.getElementById('save-btn').classList.add('primary');
-  document.getElementById('save-btn').textContent = 'Save';
+  const btn = document.getElementById('save-btn');
+  btn.classList.add('primary');
+  btn.textContent = 'Save';
+  updateWordCount();
+  // Auto-save 3s after last keystroke
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => { if (dirty) saveNote(); }, 3000);
+}
+
+function updateWordCount() {
+  const text = document.getElementById('editor').value;
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const chars = text.length;
+  const wc = document.getElementById('word-count');
+  if (wc) wc.textContent = words ? `${words}w · ${chars}c` : '';
 }
 
 // ── Views ─────────────────────────────────────────────────────────────────
@@ -322,12 +419,15 @@ function renderPreview() {
 // ── Graph ─────────────────────────────────────────────────────────────────
 
 async function renderGraph() {
-  const [graphRes, memRes] = await Promise.all([
+  const [graphRes, memRes, memEdgeRes] = await Promise.all([
     fetch('/api/graph'),
-    fetch('/api/memories')
+    fetch('/api/memories'),
+    fetch('/api/memory-edges')
   ]);
   const data = await graphRes.json();
   const memories = memRes.ok ? await memRes.json() : [];
+  const memEdges = memEdgeRes.ok ? await memEdgeRes.json() : [];
+  const allEdges = [...data.edges, ...memEdges];
 
   // Merge memories as nodes with a 'memory' type prefix so IDs don't clash
   const memNodes = memories.map(m => ({ id: `m${m.id}`, title: m.text.slice(0, 40), type: 'memory', category: m.category, text: m.text, created_at: m.created_at }));
@@ -353,7 +453,7 @@ async function renderGraph() {
   };
 
   // Links
-  const link = g.append('g').selectAll('line').data(data.edges).enter().append('line')
+  const link = g.append('g').selectAll('line').data(allEdges).enter().append('line')
     .attr('class', d => `link type-${d.type}`)
     .attr('stroke-width', d => d.type === 'link' ? 2 : 1);
 
@@ -379,7 +479,7 @@ async function renderGraph() {
 
   if (graphSimulation) graphSimulation.stop();
   graphSimulation = d3.forceSimulation(allNodes)
-    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(d => d.type === 'link' ? 80 : 140).strength(d => d.type === 'link' ? 0.8 : 0.3))
+    .force('link', d3.forceLink(allEdges).id(d => d.id).distance(d => d.type === 'link' ? 80 : 140).strength(d => d.type === 'link' ? 0.8 : 0.3))
     .force('charge', d3.forceManyBody().strength(-200))
     .force('center', d3.forceCenter(W / 2, H / 2))
     .force('collision', d3.forceCollide(20))
@@ -459,6 +559,215 @@ function toggleSidebar() {
     bd.style.display = 'none';
   }
 }
+
+// ── File upload ───────────────────────────────────────────────────────────
+
+async function uploadFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  await doUpload(file);
+}
+
+async function doUpload(file) {
+  showToast(`Uploading ${file.name}...`);
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { showToast(`Error: ${data.error}`, true); return; }
+    showToast(`Created note "${data.title}"`);
+    await loadNotes();
+    await openNote(data.id);
+  } catch (e) {
+    showToast('Upload failed', true);
+  }
+}
+
+function showToast(msg, error = false) {
+  const t = document.getElementById('upload-toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  t.style.borderColor = error ? 'var(--danger)' : 'var(--accent)';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = 'none'; }, 3000);
+}
+
+// ── Attach file/image into current note ──────────────────────────────────
+
+async function attachFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  const fd = new FormData();
+  fd.append('file', file);
+  showToast(`Uploading ${file.name}...`);
+  try {
+    const res = await fetch('/api/attachments', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { showToast(`Error: ${data.error}`, true); return; }
+    insertAttachment(data.url, data.filename, data.is_image);
+    showToast(`Attached: ${data.filename}`);
+  } catch (e) {
+    showToast('Attach failed', true);
+  }
+}
+
+function insertAttachment(url, filename, isImage) {
+  const editor = document.getElementById('editor');
+  const md = isImage ? `![${filename}](${url})` : `[${filename}](${url})`;
+  const start = editor.selectionStart;
+  const before = editor.value.slice(0, start);
+  const after = editor.value.slice(editor.selectionEnd);
+  editor.value = before + '\n' + md + '\n' + after;
+  editor.selectionStart = editor.selectionEnd = start + md.length + 2;
+  markDirty();
+}
+
+// Paste image from clipboard directly into editor
+document.getElementById('editor') && document.addEventListener('paste', async e => {
+  if (document.activeElement !== document.getElementById('editor')) return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      const fd = new FormData();
+      fd.append('file', file, `paste-${Date.now()}.png`);
+      showToast('Uploading pasted image...');
+      try {
+        const res = await fetch('/api/attachments', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (res.ok) { insertAttachment(data.url, data.filename, true); showToast('Image pasted'); }
+        else showToast(`Error: ${data.error}`, true);
+      } catch (err) { showToast('Paste failed', true); }
+      break;
+    }
+  }
+});
+
+// Drag-and-drop onto the whole page
+document.addEventListener('dragenter', e => { e.preventDefault(); document.getElementById('drop-overlay').classList.add('active'); });
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.getElementById('drop-overlay').classList.remove('active'); });
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (file) await doUpload(file);
+});
+
+// ── Export note ───────────────────────────────────────────────────────────
+
+function exportNote() {
+  if (!activeNote) return;
+  const title = document.getElementById('note-title-input').value || activeNote.title || 'note';
+  const content = document.getElementById('editor').value;
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.download = title.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() + '.md';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Split view ────────────────────────────────────────────────────────────
+
+let splitActive = false;
+function toggleSplit() {
+  splitActive = !splitActive;
+  const area = document.getElementById('content-area');
+  const btn = document.getElementById('split-btn');
+  area.classList.toggle('split', splitActive);
+  btn.classList.toggle('active', splitActive);
+  if (splitActive) {
+    document.getElementById('editor').style.display = 'block';
+    document.getElementById('preview').style.display = 'block';
+    renderPreview();
+  } else {
+    setView(currentView);
+  }
+}
+
+// ── Focus mode ────────────────────────────────────────────────────────────
+
+let focusActive = false;
+function toggleFocus() {
+  focusActive = !focusActive;
+  document.body.classList.toggle('focus', focusActive);
+  document.getElementById('focus-btn').classList.toggle('active', focusActive);
+}
+
+// ── Command palette ───────────────────────────────────────────────────────
+
+let cmdSelectedIdx = 0;
+function openCmdPalette() {
+  document.getElementById('cmd-palette').classList.add('open');
+  document.getElementById('cmd-input').value = '';
+  cmdFilter('');
+  document.getElementById('cmd-input').focus();
+}
+function closeCmdPalette() {
+  document.getElementById('cmd-palette').classList.remove('open');
+}
+function cmdFilter(q) {
+  const filtered = q.trim()
+    ? notes.filter(n => n.title.toLowerCase().includes(q.toLowerCase()) || (n.preview || '').toLowerCase().includes(q.toLowerCase()))
+    : notes.slice(0, 8);
+  cmdSelectedIdx = 0;
+  const el = document.getElementById('cmd-results');
+  el.innerHTML = filtered.map((n, i) => `
+    <div class="cmd-item ${i === 0 ? 'selected' : ''}" onclick="openNote(${n.id});closeCmdPalette()">
+      <span class="cmd-title">${esc(n.title)}</span>
+      ${n.preview ? `<span class="cmd-preview">${esc(n.preview)}</span>` : ''}
+    </div>
+  `).join('');
+  el._filtered = filtered;
+}
+document.addEventListener('keydown', e => {
+  const palette = document.getElementById('cmd-palette');
+  if (palette.classList.contains('open')) {
+    if (e.key === 'Escape') { closeCmdPalette(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const items = document.querySelectorAll('.cmd-item');
+      if (!items.length) return;
+      items[cmdSelectedIdx]?.classList.remove('selected');
+      cmdSelectedIdx = e.key === 'ArrowDown'
+        ? Math.min(cmdSelectedIdx + 1, items.length - 1)
+        : Math.max(cmdSelectedIdx - 1, 0);
+      items[cmdSelectedIdx]?.classList.add('selected');
+      items[cmdSelectedIdx]?.scrollIntoView({ block: 'nearest' });
+    }
+    if (e.key === 'Enter') {
+      const filtered = document.getElementById('cmd-results')._filtered;
+      if (filtered?.[cmdSelectedIdx]) { openNote(filtered[cmdSelectedIdx].id); closeCmdPalette(); }
+    }
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openCmdPalette(); return; }
+  if (e.key === 'f' && !e.metaKey && !e.ctrlKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+    toggleFocus();
+  }
+  if (e.key === 'Escape' && focusActive) toggleFocus();
+});
+document.getElementById('cmd-palette').addEventListener('click', e => {
+  if (e.target === document.getElementById('cmd-palette')) closeCmdPalette();
+});
+
+// ── LAN info ─────────────────────────────────────────────────────────────
+
+fetch('/api/server-info').then(r => r.json()).then(d => {
+  const footer = document.getElementById('lan-footer');
+  if (!footer) return;
+  if (d.host === '127.0.0.1') {
+    footer.textContent = 'Local only';
+  } else if (d.lan_ip) {
+    footer.innerHTML = `WiFi: <a href="http://${d.lan_ip}:8766" target="_blank">${d.lan_ip}:8766</a>`;
+  }
+}).catch(() => {});
 
 init();
 </script>
