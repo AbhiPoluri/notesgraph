@@ -549,8 +549,10 @@ async function saveNote() {
     btn.classList.remove('primary');
     btn.textContent = 'Saved ✓';
     setTimeout(() => { btn.classList.add('primary'); btn.textContent = 'Save'; btn.disabled = false; }, 1500);
-    await loadNotes();
+    const searchQ = document.getElementById('search-input').value.trim();
+    await loadNotes(searchQ);
     if (currentView === 'preview') renderPreview();
+    if (currentView === 'graph') renderGraph();
   } catch (e) {
     btn.textContent = 'Error';
     btn.disabled = false;

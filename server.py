@@ -11,9 +11,11 @@ import argparse
 import io
 import json
 import math
+import os
 import re
 import socket
 import sqlite3
+import subprocess
 import time
 import urllib.request
 import zipfile
@@ -443,10 +445,28 @@ def toggle_wifi():
     return jsonify({"wifi_enabled": wifi_enabled, "lan_ip": lan_ip})
 
 
+def ensure_ssl_cert(cert_path: Path, key_path: Path):
+    """Generate a self-signed cert if it doesn't exist."""
+    if cert_path.exists() and key_path.exists():
+        return
+    print("Generating self-signed SSL certificate...")
+    subprocess.run([
+        "openssl", "req", "-x509", "-newkey", "rsa:2048",
+        "-keyout", str(key_path),
+        "-out", str(cert_path),
+        "-days", "3650",
+        "-nodes",
+        "-subj", "/CN=notesgraph",
+        "-addext", "subjectAltName=IP:127.0.0.1,IP:::1"
+    ], check=True, capture_output=True)
+    print(f"Certificate saved to {cert_path}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--wifi", action="store_true", help="Start with WiFi access enabled (default: local only)")
     parser.add_argument("--port", type=int, default=8766)
+    parser.add_argument("--https", action="store_true", help="Enable HTTPS with a self-signed certificate")
     args = parser.parse_args()
 
     if args.wifi:
@@ -459,9 +479,21 @@ if __name__ == "__main__":
     except Exception:
         lan_ip = "your-mac-ip"
 
-    print(f"notesgraph running at http://localhost:{args.port}")
+    ssl_context = None
+    scheme = "http"
+    if args.https:
+        cert_path = DB_PATH.parent / "cert.pem"
+        key_path = DB_PATH.parent / "key.pem"
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ensure_ssl_cert(cert_path, key_path)
+        ssl_context = (str(cert_path), str(key_path))
+        scheme = "https"
+
+    print(f"notesgraph running at {scheme}://localhost:{args.port}")
     if wifi_enabled:
-        print(f"WiFi: http://{lan_ip}:{args.port}")
+        print(f"WiFi: {scheme}://{lan_ip}:{args.port}")
     else:
         print("WiFi: disabled (toggle in app to enable)")
-    app.run(host="0.0.0.0", port=args.port, debug=False)
+    if args.https:
+        print("HTTPS enabled (self-signed cert — accept the browser warning once)")
+    app.run(host="0.0.0.0", port=args.port, debug=False, ssl_context=ssl_context)
