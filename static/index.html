@@ -116,6 +116,7 @@ svg { width: 100%; height: 100%; user-select: none; -webkit-user-select: none; c
 /* ── Format bar ── */
 .fmt-btn { background:transparent; border:1px solid transparent; color:var(--muted); padding:3px 7px; border-radius:4px; cursor:pointer; font-size:11px; font-family:inherit; white-space:nowrap; }
 .fmt-btn:hover { background:#333; color:var(--text); border-color:var(--border); }
+.fmt-btn.active { background:#2a2a40; color:var(--accent); border-color:var(--accent); }
 
 /* ── Word count ── */
 #word-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -247,10 +248,10 @@ svg { touch-action: none; }
   </div>
 
   <div id="format-bar" style="display:none; align-items:center; gap:2px; padding:4px 12px; border-bottom:1px solid var(--border); background:var(--surface); flex-wrap:wrap;">
-    <button class="fmt-btn" onclick="fmtWrap('**','**')" title="Bold (Cmd+B)"><b>B</b></button>
-    <button class="fmt-btn" onclick="fmtWrap('*','*')" title="Italic (Cmd+I)"><i>I</i></button>
-    <button class="fmt-btn" onclick="fmtWrap('~~','~~')" title="Strikethrough"><s>S</s></button>
-    <button class="fmt-btn" onclick="fmtWrap('`','`')" title="Inline code"><code style="font-size:11px">cd</code></button>
+    <button class="fmt-btn" data-fmt="bold" onclick="fmtWrap('**','**')" title="Bold (Cmd+B)"><b>B</b></button>
+    <button class="fmt-btn" data-fmt="italic" onclick="fmtWrap('*','*')" title="Italic (Cmd+I)"><i>I</i></button>
+    <button class="fmt-btn" data-fmt="strike" onclick="fmtWrap('~~','~~')" title="Strikethrough"><s>S</s></button>
+    <button class="fmt-btn" data-fmt="code" onclick="fmtWrap('`','`')" title="Inline code"><code style="font-size:11px">cd</code></button>
     <div style="width:1px;height:16px;background:var(--border);margin:0 4px;"></div>
     <button class="fmt-btn" onclick="fmtLine('# ')" title="Heading 1">H1</button>
     <button class="fmt-btn" onclick="fmtLine('## ')" title="Heading 2">H2</button>
@@ -1078,17 +1079,57 @@ function fmtGetSel() {
 function fmtWrap(before, after) {
   const { sel, range, text } = fmtGetSel();
   if (!range) return;
-  const node = document.createTextNode(before + (text || 'text') + after);
-  range.deleteContents();
-  range.insertNode(node);
-  // Select just the inner text
-  const inner = document.createRange();
-  inner.setStart(node, before.length);
-  inner.setEnd(node, before.length + (text || 'text').length);
-  sel.removeAllRanges();
-  sel.addRange(inner);
+
+  // Toggle: if selection is already wrapped, unwrap it
+  if (text.startsWith(before) && text.endsWith(after) && text.length > before.length + after.length) {
+    const inner = text.slice(before.length, text.length - after.length);
+    const node = document.createTextNode(inner);
+    range.deleteContents();
+    range.insertNode(node);
+    const r = document.createRange();
+    r.selectNodeContents(node);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } else {
+    const inner = text || 'text';
+    const node = document.createTextNode(before + inner + after);
+    range.deleteContents();
+    range.insertNode(node);
+    const r = document.createRange();
+    r.setStart(node, before.length);
+    r.setEnd(node, before.length + inner.length);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
   markDirty();
+  updateFmtBar();
 }
+
+const FMT_MARKERS = [
+  { fmt: 'bold',   before: '**', after: '**' },
+  { fmt: 'italic', before: '*',  after: '*'  },
+  { fmt: 'strike', before: '~~', after: '~~' },
+  { fmt: 'code',   before: '`',  after: '`'  },
+];
+
+function updateFmtBar() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const text = sel.getRangeAt(0).toString();
+  for (const { fmt, before, after } of FMT_MARKERS) {
+    const btn = document.querySelector(`.fmt-btn[data-fmt="${fmt}"]`);
+    if (!btn) continue;
+    const active = text.length > before.length + after.length &&
+                   text.startsWith(before) && text.endsWith(after);
+    btn.classList.toggle('active', active);
+  }
+}
+
+document.addEventListener('selectionchange', () => {
+  const editor = document.getElementById('editor');
+  const active = document.activeElement;
+  if (active === editor || editor.contains(active)) updateFmtBar();
+});
 
 function fmtLine(prefix) {
   const editor = document.getElementById('editor');
