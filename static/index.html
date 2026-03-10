@@ -113,6 +113,10 @@ svg { width: 100%; height: 100%; user-select: none; -webkit-user-select: none; c
 .upload-file .file-size { font-size:10px; color:var(--muted); margin-top:2px; }
 #uploads-section-title { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-top:8px; }
 
+/* ── Format bar ── */
+.fmt-btn { background:transparent; border:1px solid transparent; color:var(--muted); padding:3px 7px; border-radius:4px; cursor:pointer; font-size:11px; font-family:inherit; white-space:nowrap; }
+.fmt-btn:hover { background:#333; color:var(--text); border-color:var(--border); }
+
 /* ── Word count ── */
 #word-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
@@ -240,6 +244,27 @@ svg { touch-action: none; }
     <button class="btn" id="split-btn" title="Split view (edit + preview)" onclick="toggleSplit()" style="display:none">⊟</button>
     <button class="btn" id="focus-btn" title="Focus mode (F)" onclick="toggleFocus()">⛶</button>
     <span id="word-count"></span>
+  </div>
+
+  <div id="format-bar" style="display:none; align-items:center; gap:2px; padding:4px 12px; border-bottom:1px solid var(--border); background:var(--surface); flex-wrap:wrap;">
+    <button class="fmt-btn" onclick="fmtWrap('**','**')" title="Bold (Cmd+B)"><b>B</b></button>
+    <button class="fmt-btn" onclick="fmtWrap('*','*')" title="Italic (Cmd+I)"><i>I</i></button>
+    <button class="fmt-btn" onclick="fmtWrap('~~','~~')" title="Strikethrough"><s>S</s></button>
+    <button class="fmt-btn" onclick="fmtWrap('`','`')" title="Inline code"><code style="font-size:11px">cd</code></button>
+    <div style="width:1px;height:16px;background:var(--border);margin:0 4px;"></div>
+    <button class="fmt-btn" onclick="fmtLine('# ')" title="Heading 1">H1</button>
+    <button class="fmt-btn" onclick="fmtLine('## ')" title="Heading 2">H2</button>
+    <button class="fmt-btn" onclick="fmtLine('### ')" title="Heading 3">H3</button>
+    <div style="width:1px;height:16px;background:var(--border);margin:0 4px;"></div>
+    <button class="fmt-btn" onclick="fmtLine('- ')" title="Bullet list">• List</button>
+    <button class="fmt-btn" onclick="fmtLine('1. ')" title="Numbered list">1. List</button>
+    <button class="fmt-btn" onclick="fmtLine('- [ ] ')" title="Checklist">☐ Check</button>
+    <button class="fmt-btn" onclick="fmtLine('> ')" title="Blockquote">" Quote</button>
+    <div style="width:1px;height:16px;background:var(--border);margin:0 4px;"></div>
+    <button class="fmt-btn" onclick="fmtInsertTable()" title="Insert table">Table</button>
+    <button class="fmt-btn" onclick="fmtInsertCodeBlock()" title="Code block">``` Block</button>
+    <button class="fmt-btn" onclick="fmtInsert('\n---\n')" title="Divider">— HR</button>
+    <button class="fmt-btn" onclick="fmtInsertLink()" title="Link">Link</button>
   </div>
 
   <div id="content-area">
@@ -539,6 +564,8 @@ function setView(view) {
   } else if (view === 'edit' && !hasNote) {
     document.getElementById('empty-state').style.display = '';
   }
+  const fmtBar = document.getElementById('format-bar');
+  if (fmtBar) fmtBar.style.display = (view === 'edit' && hasNote) ? 'flex' : 'none';
   document.getElementById('editor').style.display = (view === 'edit' && hasNote) ? 'block' : 'none';
   document.getElementById('preview').style.display = view === 'preview' ? 'block' : 'none';
   document.getElementById('graph-container').style.display = view === 'graph' ? 'block' : 'none';
@@ -1035,6 +1062,81 @@ async function toggleWifi() {
     renderWifiFooter(d.wifi_enabled, d.lan_ip, _lanPort);
   } catch(e) {}
 }
+
+// ── Format bar actions ────────────────────────────────────────────────────
+
+function fmtGetSel() {
+  const editor = document.getElementById('editor');
+  editor.focus();
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return { sel, range: null, text: '' };
+  const range = sel.getRangeAt(0);
+  const text = range.toString();
+  return { sel, range, text };
+}
+
+function fmtWrap(before, after) {
+  const { sel, range, text } = fmtGetSel();
+  if (!range) return;
+  const node = document.createTextNode(before + (text || 'text') + after);
+  range.deleteContents();
+  range.insertNode(node);
+  // Select just the inner text
+  const inner = document.createRange();
+  inner.setStart(node, before.length);
+  inner.setEnd(node, before.length + (text || 'text').length);
+  sel.removeAllRanges();
+  sel.addRange(inner);
+  markDirty();
+}
+
+function fmtLine(prefix) {
+  const editor = document.getElementById('editor');
+  editor.focus();
+  document.execCommand('insertText', false, '\n' + prefix);
+  markDirty();
+}
+
+function fmtInsert(text) {
+  const editor = document.getElementById('editor');
+  editor.focus();
+  document.execCommand('insertText', false, text);
+  markDirty();
+}
+
+function fmtInsertTable() {
+  const tbl = `
+| Header 1 | Header 2 | Header 3 |
+| -------- | -------- | -------- |
+| Cell     | Cell     | Cell     |
+| Cell     | Cell     | Cell     |
+`;
+  fmtInsert(tbl);
+}
+
+function fmtInsertCodeBlock() {
+  fmtInsert('\n```\n\n```\n');
+}
+
+function fmtInsertLink() {
+  const { range, text } = fmtGetSel();
+  if (!range) return;
+  const url = prompt('URL:');
+  if (!url) return;
+  const label = text || 'link text';
+  range.deleteContents();
+  const node = document.createTextNode(`[${label}](${url})`);
+  range.insertNode(node);
+  markDirty();
+}
+
+// Cmd+B / Cmd+I shortcuts in editor
+document.getElementById('editor').addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey) {
+    if (e.key === 'b') { e.preventDefault(); fmtWrap('**', '**'); }
+    if (e.key === 'i') { e.preventDefault(); fmtWrap('*', '*'); }
+  }
+});
 
 fetch('/api/server-info').then(r => r.json()).then(d => {
   renderWifiFooter(d.wifi_enabled, d.lan_ip, d.port || 8766);
