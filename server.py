@@ -83,7 +83,7 @@ def extract_links(content: str) -> list[str]:
 
 # ── Flask app ────────────────────────────────────────────────────────────────
 
-app = Flask(__name__, static_folder=str(STATIC_DIR))
+app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 
 wifi_enabled = False  # default: local only
 LOCALHOST_ADDRS = {"127.0.0.1", "::1"}
